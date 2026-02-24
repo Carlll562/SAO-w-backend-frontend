@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS `sao_db`.`curriculum` (
     FOREIGN KEY (`YEAR_ID`)
     REFERENCES `sao_db`.`year` (`ID`))
 ENGINE = InnoDB
-AUTO_INCREMENT = 28
+AUTO_INCREMENT = 1
 DEFAULT CHARACTER SET = utf8mb4
 COLLATE = utf8mb4_0900_ai_ci;
 

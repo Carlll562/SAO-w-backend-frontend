@@ -69,13 +69,22 @@ export function Dashboard() {
     setRecentActivities(logs);
     
     // 2. Calculate Stats using the new data model
-    const activeEnrolledCount = enrollments.filter((e: any) => e.status === "Enrolled").length;
+    // Status now mirrors DB enum: 'Active' | 'Passed' | 'Failed'
+    // Keep backward compatibility for any legacy values ('Enrolled', 'Completed')
+    const activeEnrolledCount = enrollments.filter(
+      (e: any) => e.status === "Active" || e.status === "Enrolled"
+    ).length;
     
     // Check if grade exists and isn't just an empty string
     const gradesSubmittedCount = enrollments.filter((e: any) => e.grade && e.grade.trim() !== "").length;
     
-    // Calculate completion rate based on how many enrollments are marked "Completed"
-    const completedCount = enrollments.filter((e: any) => e.status === "Completed").length;
+    // Calculate completion rate: any non-active enrollment is considered completed
+    const completedCount = enrollments.filter(
+      (e: any) =>
+        e.status === "Passed" ||
+        e.status === "Failed" ||
+        e.status === "Completed"
+    ).length;
     const completionRateCalc = enrollments.length > 0 
       ? Math.round((completedCount / enrollments.length) * 100) 
       : 0;

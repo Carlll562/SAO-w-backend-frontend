@@ -45,13 +45,17 @@ interface Student {
 interface Enrollment {
   id: number; // ID INT
   grade: string; // Grade VARCHAR(9)
-  status: string; // Status ENUM
+  status: string; // Status ENUM('Passed','Failed','Active') in DB
   createdAt: string; // Created_At DATETIME
   updatedAt: string; // Updated_At DATETIME
   createdBy: string; // Created_By VARCHAR(45)
   updatedBy: string; // Updated_By VARCHAR(45)
   studentId: string; // STUDENT_ID VARCHAR (FK to student)
   curriculumId: number; // CURRICULUM_ID INT (FK to curriculum)
+  courseCode?: string; // Derived: Course associated with this enrollment
+  programName?: string; // Derived: Program the course is under
+  yearId?: number; // YEAR_ID used by StudentEnroll
+  semesterId?: number; // SEMESTER_ID used by StudentEnroll
 }
 
 export function Students() {
@@ -79,7 +83,11 @@ export function Students() {
   const [enrollmentFormData, setEnrollmentFormData] = useState({
     curriculumId: 1,
     grade: "",
-    status: "Enrolled", // Default ENUM value
+    status: "Active",
+    courseCode: "",
+    programName: "",
+    yearId: 1,
+    semesterId: 1,
   });
   
   const { user, hasPermission } = useAuth();
@@ -93,13 +101,49 @@ export function Students() {
     );
   }
 
+  // Grade input must respect DB GradeUpdate() constraints:
+  // (Ongoing), R, F, or integer 1–100
+  const GRADE_INPUT_REGEX = /^(\(Ongoing\)|R|F|([1-9][0-9]?|100))$/;
+
+  const deriveStatusFromGrade = (rawGrade: string): string => {
+    const g = (rawGrade || "").trim();
+    if (!g || g === "(Ongoing)") {
+      return "Active";
+    }
+    if (g === "F" || g === "R") {
+      return "Failed";
+    }
+    const numericMatch = g.match(/^([1-9][0-9]?|100)$/);
+    if (numericMatch) {
+      const value = parseInt(g, 10);
+      return value >= 70 ? "Passed" : "Failed";
+    }
+    return "Active";
+  };
+
+  const normalizeEnrollmentFromStorage = (e: Enrollment): Enrollment => {
+    const normalizedGrade = (e.grade || "").trim();
+    return {
+      ...e,
+      grade: normalizedGrade || "(Ongoing)",
+      status: deriveStatusFromGrade(normalizedGrade || "(Ongoing)"),
+    };
+  };
+
   useEffect(() => {
     const storedStudents = localStorage.getItem("students");
     if (storedStudents) setStudents(JSON.parse(storedStudents));
 
     const storedEnrollments = localStorage.getItem("enrollments");
     if (storedEnrollments) {
-      setEnrollments(JSON.parse(storedEnrollments));
+      try {
+        const parsed: Enrollment[] = JSON.parse(storedEnrollments);
+        const normalized = parsed.map(normalizeEnrollmentFromStorage);
+        setEnrollments(normalized);
+        localStorage.setItem("enrollments", JSON.stringify(normalized));
+      } catch {
+        setEnrollments([]);
+      }
     }
 
     // Simulate API data-fetch logging
@@ -429,9 +473,18 @@ export function Students() {
 
   // --- ENROLLMENT HANDLERS ---
   const handleOpenAddEnrollment = (studentIdNumber: string) => {
+    const targetStudent = students.find((s) => s.idNumber === studentIdNumber);
     setEditingEnrollment(null);
     setSelectedStudentForEnrollment(studentIdNumber);
-    setEnrollmentFormData({ curriculumId: 1, grade: "", status: "Enrolled" });
+    setEnrollmentFormData({
+      curriculumId: 1,
+      grade: "",
+      status: "Active",
+      courseCode: "",
+      programName: "",
+      yearId: targetStudent?.currentYear || 1,
+      semesterId: targetStudent?.currentSemester || 1,
+    });
     setEnrollmentDialogOpen(true);
   };
 
@@ -441,21 +494,40 @@ export function Students() {
     setEnrollmentFormData({
       curriculumId: enrollment.curriculumId,
       grade: enrollment.grade || "",
-      status: enrollment.status,
+      status: deriveStatusFromGrade(enrollment.grade || ""),
+      courseCode: enrollment.courseCode || "",
+      programName: enrollment.programName || "",
+       yearId: enrollment.yearId || 1,
+       semesterId: enrollment.semesterId || 1,
     });
     setEnrollmentDialogOpen(true);
   };
 
-  const handleEnrollmentSubmit = () => {
+  const handleEnrollmentSubmit = async () => {
     if (!selectedStudentForEnrollment) return;
     
-    if (enrollmentFormData.grade.length > 9) {
+    const trimmedGrade = (enrollmentFormData.grade || "").trim();
+    const normalizedGrade = trimmedGrade === "" ? "(Ongoing)" : trimmedGrade;
+
+    if (normalizedGrade.length > 9) {
       toast.error("Grade cannot exceed 9 characters.");
       addAuditLog({
         action: "Validation Error",
         user: user?.email || "Unknown",
         status: "Error",
-        details: `Enrollment form failed: Grade "${enrollmentFormData.grade}" exceeds VARCHAR(9) limit`,
+        details: `Enrollment form failed: Grade "${normalizedGrade}" exceeds VARCHAR(9) limit`,
+        category: "Error",
+      });
+      return;
+    }
+
+    if (!GRADE_INPUT_REGEX.test(normalizedGrade)) {
+      toast.error("Invalid Grade. Allowed: (Ongoing), R, F, or 1–100.");
+      addAuditLog({
+        action: "Validation Error",
+        user: user?.email || "Unknown",
+        status: "Error",
+        details: `Enrollment form failed: Grade "${normalizedGrade}" does not satisfy the GradeUpdate() regex or VARCHAR(9) constraint`,
         category: "Error",
       });
       return;
@@ -463,17 +535,80 @@ export function Students() {
 
     const timestamp = new Date().toISOString();
     const currentUser = user?.email || "Unknown";
+    const derivedStatus = deriveStatusFromGrade(normalizedGrade);
+
+    // Resolve the selected student to derive program/year/semester and fullName for backend calls
+    const selectedStudent = students.find((s) => s.idNumber === selectedStudentForEnrollment);
+    if (!selectedStudent) {
+      toast.error("Selected student not found. Please reload the page.");
+      return;
+    }
+
+    if (!user || !user.backendToken) {
+      toast.error("Backend token missing. Please log in again to save enrollments to the database.");
+      addAuditLog({
+        action: "API Auth Error",
+        user: currentUser,
+        status: "Error",
+        details: "Attempted to create or update an enrollment but no backend JWT was available.",
+        category: "Error",
+      });
+      return;
+    }
 
     if (editingEnrollment) {
+      // 1) Sync grade change to backend via GradeUpdate stored procedure
+      try {
+        const resp = await fetch("/api/v1/grades", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.backendToken}`,
+          },
+          body: JSON.stringify({
+            fullname: selectedStudent.fullName,
+            courseCode: (enrollmentFormData as any).courseCode || "",
+            rawGrade: normalizedGrade,
+          }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.success === false) {
+          const message = data.message || "Failed to update grade in the backend.";
+          toast.error(message);
+          addAuditLog({
+            action: "API Error: POST /grades",
+            user: currentUser,
+            status: "Error",
+            details: message,
+            category: "API",
+          });
+          return;
+        }
+      } catch (error: any) {
+        const message = error?.message || "Network error while updating grade in the backend.";
+        toast.error(message);
+        addAuditLog({
+          action: "API Network Error: POST /grades",
+          user: currentUser,
+          status: "Error",
+          details: message,
+          category: "API",
+        });
+        return;
+      }
+
+      // 2) Update local enrollment cache for UI
       const updatedEnrollments = enrollments.map((e) =>
         e.id === editingEnrollment.id
           ? {
               ...e,
-              grade: enrollmentFormData.grade.trim(),
-              status: enrollmentFormData.status,
+              grade: normalizedGrade,
+              status: derivedStatus,
               curriculumId: Number(enrollmentFormData.curriculumId),
               updatedAt: timestamp,
               updatedBy: currentUser,
+              courseCode: (enrollmentFormData as any).courseCode?.trim() || "",
+              programName: (enrollmentFormData as any).programName?.trim() || "",
             }
           : e
       );
@@ -484,20 +619,67 @@ export function Students() {
         action: "UPDATE Enrollment",
         user: currentUser,
         status: "Success",
-        details: `Updated enrollment for student ID ${selectedStudentForEnrollment} — Curriculum: ${enrollmentFormData.curriculumId}, Grade: ${enrollmentFormData.grade}, Status: ${enrollmentFormData.status}`,
+        details: `Updated enrollment for student ID ${selectedStudentForEnrollment} — Curriculum: ${enrollmentFormData.curriculumId}, Grade: ${normalizedGrade}, Status: ${derivedStatus}, Course: ${(enrollmentFormData as any).courseCode || "N/A"}, Program: ${(enrollmentFormData as any).programName || "N/A"}`,
         category: "CRUD",
       });
     } else {
+      // 1) Create enrollment in backend using StudentEnroll stored procedure
+      try {
+        const resp = await fetch("/api/v1/students/enroll", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.backendToken}`,
+          },
+          body: JSON.stringify({
+            fullName: selectedStudent.fullName,
+            courseCode: (enrollmentFormData as any).courseCode || "",
+            programName: (enrollmentFormData as any).programName || "",
+            yearId: (enrollmentFormData as any).yearId || selectedStudent.currentYear,
+            semesterId: (enrollmentFormData as any).semesterId || selectedStudent.currentSemester,
+          }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.success === false) {
+          const message = data.message || "Failed to create enrollment in the backend.";
+          toast.error(message);
+          addAuditLog({
+            action: "API Error: POST /students/enroll",
+            user: currentUser,
+            status: "Error",
+            details: message,
+            category: "API",
+          });
+          return;
+        }
+      } catch (error: any) {
+        const message = error?.message || "Network error while creating enrollment in the backend.";
+        toast.error(message);
+        addAuditLog({
+          action: "API Network Error: POST /students/enroll",
+          user: currentUser,
+          status: "Error",
+          details: message,
+          category: "API",
+        });
+        return;
+      }
+
+      // 2) Add local enrollment record for UI
       const newEnrollment: Enrollment = {
         id: Date.now(),
-        grade: enrollmentFormData.grade.trim(),
-        status: enrollmentFormData.status,
+        grade: normalizedGrade,
+        status: derivedStatus,
         createdAt: timestamp,
         updatedAt: timestamp,
         createdBy: currentUser,
         updatedBy: currentUser,
         studentId: selectedStudentForEnrollment,
-        curriculumId: Number(enrollmentFormData.curriculumId)
+        curriculumId: Number(enrollmentFormData.curriculumId),
+        courseCode: (enrollmentFormData as any).courseCode?.trim() || "",
+        programName: (enrollmentFormData as any).programName?.trim() || "",
+        yearId: (enrollmentFormData as any).yearId || selectedStudent.currentYear,
+        semesterId: (enrollmentFormData as any).semesterId || selectedStudent.currentSemester,
       };
 
       saveEnrollments([...enrollments, newEnrollment]);
@@ -506,7 +688,7 @@ export function Students() {
         action: "CREATE Enrollment",
         user: currentUser,
         status: "Success",
-        details: `Created enrollment for student ID ${selectedStudentForEnrollment} — Curriculum: ${enrollmentFormData.curriculumId}, Status: ${enrollmentFormData.status}`,
+        details: `Created enrollment for student ID ${selectedStudentForEnrollment} — Curriculum: ${enrollmentFormData.curriculumId}, Grade: ${normalizedGrade}, Status: ${derivedStatus}, Course: ${(enrollmentFormData as any).courseCode || "N/A"}, Program: ${(enrollmentFormData as any).programName || "N/A"}`,
         category: "CRUD",
       });
     }
@@ -614,11 +796,11 @@ export function Students() {
                               <TableHeader>
                                 <TableRow className="bg-gray-50/50">
                                   <TableHead className="text-xs">Enrollment ID</TableHead>
-                                  <TableHead className="text-xs">Curriculum ID</TableHead>
+                                  <TableHead className="text-xs">Course</TableHead>
+                                  <TableHead className="text-xs">Program</TableHead>
                                   <TableHead className="text-xs">Grade</TableHead>
                                   <TableHead className="text-xs">Status</TableHead>
                                   <TableHead className="text-xs">Updated At</TableHead>
-                                  <TableHead className="text-xs">Updated By</TableHead>
                                   <TableHead className="text-xs text-right">Actions</TableHead>
                                 </TableRow>
                               </TableHeader>
@@ -627,15 +809,25 @@ export function Students() {
                                   studentEnrollments.map(enr => (
                                     <TableRow key={enr.id}>
                                       <TableCell className="font-mono text-xs text-gray-500">{enr.id}</TableCell>
-                                      <TableCell className="text-xs font-medium text-indigo-600">{enr.curriculumId}</TableCell>
-                                      <TableCell className="text-xs font-semibold">{enr.grade || "N/A"}</TableCell>
+                                      <TableCell className="text-xs font-medium text-indigo-600">
+                                        {enr.courseCode || `Curriculum ${enr.curriculumId}`}
+                                      </TableCell>
+                                      <TableCell className="text-xs">{enr.programName || "N/A"}</TableCell>
+                                      <TableCell className="text-xs font-semibold">{enr.grade || "(Ongoing)"}</TableCell>
                                       <TableCell className="text-xs">
-                                        <span className={`px-2 py-1 rounded-full border ${enr.status === 'Enrolled' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+                                        <span
+                                          className={`px-2 py-1 rounded-full border text-xs ${
+                                            enr.status === "Passed"
+                                              ? "bg-green-50 text-green-700 border-green-200"
+                                              : enr.status === "Failed"
+                                              ? "bg-red-50 text-red-700 border-red-200"
+                                              : "bg-blue-50 text-blue-700 border-blue-200"
+                                          }`}
+                                        >
                                           {enr.status}
                                         </span>
                                       </TableCell>
                                       <TableCell className="text-xs text-gray-500">{new Date(enr.updatedAt).toLocaleDateString()}</TableCell>
-                                      <TableCell className="text-xs text-gray-500">{enr.updatedBy}</TableCell>
                                       <TableCell className="text-right">
                                         {hasPermission("canManageStudents") && (
                                           <Button
@@ -772,21 +964,85 @@ export function Students() {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="space-y-2">
-              <Label>Curriculum ID (INT)</Label>
+              <Label>Year (INT)</Label>
+              <select
+                value={(enrollmentFormData as any).yearId}
+                onChange={(e) =>
+                  setEnrollmentFormData({
+                    ...enrollmentFormData,
+                    yearId: Number(e.target.value),
+                  } as any)
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+                <option value={4}>4</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Semester (INT)</Label>
+              <select
+                value={(enrollmentFormData as any).semesterId}
+                onChange={(e) =>
+                  setEnrollmentFormData({
+                    ...enrollmentFormData,
+                    semesterId: Number(e.target.value),
+                  } as any)
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Course</Label>
               <Input
-                type="number"
-                min="1"
-                value={enrollmentFormData.curriculumId}
-                onChange={(e) => setEnrollmentFormData({ ...enrollmentFormData, curriculumId: Number(e.target.value) })}
-                placeholder="1"
+                value={(enrollmentFormData as any).courseCode || ""}
+                onChange={(e) =>
+                  setEnrollmentFormData({
+                    ...enrollmentFormData,
+                    courseCode: e.target.value,
+                  } as any)
+                }
+                placeholder="e.g. PROG1"
+                maxLength={7}
               />
             </div>
             <div className="space-y-2">
-              <Label>Grade <span className="text-gray-400 text-xs font-normal">(Optional)</span></Label>
+              <Label>Program</Label>
+              <Input
+                value={(enrollmentFormData as any).programName || ""}
+                onChange={(e) =>
+                  setEnrollmentFormData({
+                    ...enrollmentFormData,
+                    programName: e.target.value,
+                  } as any)
+                }
+                placeholder="e.g. BSCS"
+                maxLength={45}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>
+                Grade{" "}
+                <span className="text-gray-400 text-xs font-normal">
+                  (Optional — (Ongoing), R, F, or 1–100)
+                </span>
+              </Label>
               <Input
                 value={enrollmentFormData.grade}
-                onChange={(e) => setEnrollmentFormData({ ...enrollmentFormData, grade: e.target.value })}
-                placeholder="1.25"
+                onChange={(e) =>
+                  setEnrollmentFormData({
+                    ...enrollmentFormData,
+                    grade: e.target.value,
+                    status: deriveStatusFromGrade(e.target.value),
+                  })
+                }
+                placeholder="e.g. 85"
                 maxLength={9} /* EXACT ERD LIMIT: VARCHAR(9) */
               />
             </div>
@@ -794,14 +1050,16 @@ export function Students() {
               <Label>Status (ENUM)</Label>
               <select
                 value={enrollmentFormData.status}
-                onChange={(e) => setEnrollmentFormData({ ...enrollmentFormData, status: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                disabled
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-700 cursor-not-allowed focus:outline-none"
               >
-                <option value="Enrolled">Enrolled</option>
-                <option value="Completed">Completed</option>
-                <option value="Dropped">Dropped</option>
+                <option value="Active">Active</option>
+                <option value="Passed">Passed</option>
                 <option value="Failed">Failed</option>
               </select>
+              <p className="text-xs text-gray-500">
+                Status is derived from Grade based on database rules and cannot be edited directly.
+              </p>
             </div>
           </div>
           <DialogFooter>
