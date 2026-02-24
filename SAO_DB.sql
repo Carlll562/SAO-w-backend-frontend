@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS `sao_db`.`student` (
   `Updated_By` VARCHAR(45) NOT NULL DEFAULT 'registrar',
   `currentYear` INT NOT NULL DEFAULT 1,
   `currentSemester` INT NOT NULL DEFAULT 1,
+  `Is_Archived` TINYINT(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`ID_Number`),
   INDEX `lastName_index` (`lastName` ASC) VISIBLE)
 ENGINE = InnoDB
@@ -311,16 +312,27 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `AddStudent`(
     IN Section VARCHAR(45)
 )
 BEGIN
-    IF NOT EXISTS (
+    -- Enforce exact ID length at the DB level
+    IF CHAR_LENGTH(ID_Number) <> 8 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'ID_Number must be exactly 8 characters long.';
+    END IF;
+
+    -- Prevent duplicates from silently succeeding
+    IF EXISTS (
         SELECT 1 FROM STUDENT WHERE STUDENT.ID_Number = ID_Number
     ) THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'A student with this ID_Number already exists.';
+    ELSE
         INSERT INTO STUDENT (
             ID_Number,
             lastName,
             firstName,
             Section,
             Created_By,
-            Updated_By
+            Updated_By,
+            Is_Archived
         )
         VALUES (
             ID_Number,
@@ -328,9 +340,78 @@ BEGIN
             firstName,
             Section,
             'registrar',
-            'registrar'
+            'registrar',
+            0
         );
     END IF;
+END$$
+
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- procedure SetStudentArchived
+-- -----------------------------------------------------
+
+DELIMITER $$
+USE `sao_db`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `SetStudentArchived`(
+    IN p_ID_Number VARCHAR(8),
+    IN p_Archived TINYINT(1)
+)
+BEGIN
+    IF CHAR_LENGTH(p_ID_Number) <> 8 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'ID_Number must be exactly 8 characters long.';
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM STUDENT WHERE ID_Number = p_ID_Number) THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Student not found for archiving.';
+    END IF;
+
+    UPDATE STUDENT
+    SET Is_Archived = p_Archived
+    WHERE ID_Number = p_ID_Number;
+END$$
+
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- procedure UpdateStudent
+-- -----------------------------------------------------
+
+DELIMITER $$
+USE `sao_db`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `UpdateStudent`(
+    IN p_ID_Number VARCHAR(8),
+    IN p_lastName VARCHAR(30),
+    IN p_firstName VARCHAR(30),
+    IN p_Section VARCHAR(45),
+    IN p_currentYear INT,
+    IN p_currentSemester INT
+)
+BEGIN
+    -- Basic ID validation
+    IF CHAR_LENGTH(p_ID_Number) <> 8 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'ID_Number must be exactly 8 characters long.';
+    END IF;
+
+    -- Ensure the student exists
+    IF NOT EXISTS (SELECT 1 FROM STUDENT WHERE ID_Number = p_ID_Number) THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Student not found for update.';
+    END IF;
+
+    UPDATE STUDENT
+    SET 
+        lastName       = p_lastName,
+        firstName      = p_firstName,
+        Section        = p_Section,
+        currentYear    = p_currentYear,
+        currentSemester= p_currentSemester,
+        Updated_By     = 'registrar'
+    WHERE ID_Number = p_ID_Number;
 END$$
 
 DELIMITER ;

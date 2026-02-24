@@ -34,11 +34,12 @@ export interface User {
   email: string;
   role: "Admin" | "User"; // Kept for backward compat / simple display
   permissions?: UserPermissions; // Optional to handle legacy data gracefully
+  backendToken?: string; // JWT used to talk to the Node/MySQL API
 }
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => boolean;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   isAdmin: boolean;
   hasPermission: (permission: keyof UserPermissions) => boolean;
@@ -72,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = (email: string, password: string): boolean => {
+  const login = async (email: string, password: string): Promise<boolean> => {
     // Get all users from localStorage
     const usersData = localStorage.getItem("users");
     const users = usersData ? JSON.parse(usersData) : [DEFAULT_ADMIN];
@@ -90,8 +91,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         userWithoutPassword.permissions = userWithoutPassword.role === "Admin" ? ADMIN_PERMISSIONS : USER_PERMISSIONS;
       }
 
-      setUser(userWithoutPassword);
-      localStorage.setItem("currentUser", JSON.stringify(userWithoutPassword));
+      // Attempt to obtain a backend JWT so the frontend can call
+      // the protected /api/v1/* endpoints (registrar role).
+      let backendToken: string | undefined;
+      try {
+        const resp = await fetch("/api/v1/auth/test-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          backendToken = data.token;
+        } else {
+          console.error("Failed to obtain backend token:", await resp.text());
+        }
+      } catch (error) {
+        console.error("Error while requesting backend token:", error);
+      }
+
+      const enhancedUser: User = {
+        ...(userWithoutPassword as User),
+        backendToken,
+      };
+
+      setUser(enhancedUser);
+      localStorage.setItem("currentUser", JSON.stringify(enhancedUser));
       
       // Log the login action
       addAuditLog({

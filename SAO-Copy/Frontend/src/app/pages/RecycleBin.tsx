@@ -29,6 +29,7 @@ interface Student {
   updatedBy: string;
   isDeleted?: boolean;
   deletedAt?: string | null;
+  archived?: boolean; // Mirrors DB Is_Archived
 }
 
 export function RecycleBin() {
@@ -64,9 +65,58 @@ export function RecycleBin() {
       student.idNumber?.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const handleRestore = (student: Student) => {
+  const handleRestore = async (student: Student) => {
     if (window.confirm(`Are you sure you want to restore ${student.fullName}?`)) {
       const timestamp = new Date().toISOString();
+      const currentUserEmail = user?.email || "Unknown";
+
+      // Call backend to set archived = false
+      if (!user || !user.backendToken) {
+        toast.error("Backend token missing. Please log in again to restore students in the database.");
+        addAuditLog({
+          action: "API Auth Error",
+          user: currentUserEmail,
+          status: "Error",
+          details: "Attempted to restore a student but no backend JWT was available.",
+          category: "Error",
+        });
+        return;
+      }
+
+      try {
+        const resp = await fetch(`/api/v1/students/${encodeURIComponent(student.idNumber)}/restore`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.backendToken}`,
+          },
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.success === false) {
+          const message = data.message || "Failed to restore student on the server.";
+          toast.error(message);
+          addAuditLog({
+            action: "API Error: PATCH /students/:id/restore",
+            user: currentUserEmail,
+            status: "Error",
+            details: message,
+            category: "API",
+          });
+          return;
+        }
+      } catch (error: any) {
+        const message = error?.message || "Network error while restoring student.";
+        toast.error(message);
+        addAuditLog({
+          action: "API Network Error: PATCH /students/:id/restore",
+          user: currentUserEmail,
+          status: "Error",
+          details: message,
+          category: "API",
+        });
+        return;
+      }
+
       const updatedStudents = students.map((s) =>
         s.id === student.id
           ? { 
@@ -91,57 +141,13 @@ export function RecycleBin() {
     }
   };
 
-  const handlePermanentDelete = (student: Student) => {
-    if (window.confirm(`WARNING: This action cannot be undone.\n\nAre you sure you want to PERMANENTLY delete ${student.fullName}?`)) {
-      const updatedStudents = students.filter((s) => s.id !== student.id);
-      saveStudents(updatedStudents);
-      toast.error("Student permanently deleted");
-
-      addAuditLog({
-        action: "Permanent Delete Student",
-        user: user?.email || "Unknown",
-        status: "Success",
-        details: `Permanently deleted student: ${student.fullName} (${student.idNumber})`,
-        category: "CRUD",
-      });
-    }
-  };
-
-  const handleEmptyRecycleBin = () => {
-    if (deletedStudents.length === 0) return;
-
-    if (window.confirm(`WARNING: This will permanently delete ALL ${deletedStudents.length} items in the Recycle Bin.\n\nThis action cannot be undone. Continue?`)) {
-      const updatedStudents = students.filter((s) => !s.isDeleted);
-      saveStudents(updatedStudents);
-      toast.error("Recycle Bin emptied");
-
-      addAuditLog({
-        action: "Empty Recycle Bin",
-        user: user?.email || "Unknown",
-        status: "Success",
-        details: `Permanently deleted ${deletedStudents.length} students from Recycle Bin`,
-        category: "CRUD",
-      });
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold text-gray-900">Recycle Bin</h1>
-          <p className="text-gray-600 mt-1">Manage deleted student records</p>
+          <p className="text-gray-600 mt-1">Restore previously deleted student records</p>
         </div>
-        {deletedStudents.length > 0 && hasPermission("canManageStudents") && (
-          <Button 
-            variant="destructive" 
-            onClick={handleEmptyRecycleBin}
-            className="bg-red-600 hover:bg-red-700 text-white"
-          >
-            <Trash2 className="w-4 h-4 mr-2" />
-            Empty Recycle Bin
-          </Button>
-        )}
       </div>
 
       <div className="relative">
@@ -163,7 +169,7 @@ export function RecycleBin() {
               <TableHead>Section</TableHead>
               <TableHead>Deleted At</TableHead>
               <TableHead>Deleted By</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="text-right">Restore</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -189,15 +195,6 @@ export function RecycleBin() {
                       <RefreshCw className="w-4 h-4 mr-1" />
                       Restore
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                      onClick={() => handlePermanentDelete(student)}
-                      title="Delete Permanently"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
                   </div>
                   )}
                 </TableCell>
@@ -216,15 +213,6 @@ export function RecycleBin() {
           </TableBody>
         </Table>
       </div>
-      
-      {deletedStudents.length > 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
-          <p className="text-sm text-yellow-700">
-            Items in the Recycle Bin can be restored at any time. "Empty Recycle Bin" will permanently remove all items listed here.
-          </p>
-        </div>
-      )}
     </div>
   );
 }

@@ -14,10 +14,10 @@ export function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (login(email, password)) {
+    if (await login(email, password)) {
       toast.success("Login successful!");
       navigate("/");
     } else {

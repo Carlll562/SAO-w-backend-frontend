@@ -38,6 +38,7 @@ interface Student {
   createdBy: string;
   updatedBy: string;
   isDeleted?: boolean;
+  archived?: boolean; // Mirrors Is_Archived from DB
 }
 
 // ERD: enrollment (Updated to match exact columns)
@@ -165,9 +166,58 @@ export function Students() {
     setStudentDialogOpen(true);
   };
 
-  const handleDeleteStudent = (student: Student) => {
+  const handleDeleteStudent = async (student: Student) => {
     if (window.confirm(`Are you sure you want to move ${student.fullName} to the Recycle Bin?`)) {
       const timestamp = new Date().toISOString();
+      const currentUserEmail = user?.email || "Unknown";
+
+      // Call backend to set archived = true
+      if (!user || !user.backendToken) {
+        toast.error("Backend token missing. Please log in again to archive students in the database.");
+        addAuditLog({
+          action: "API Auth Error",
+          user: currentUserEmail,
+          status: "Error",
+          details: "Attempted to archive a student but no backend JWT was available.",
+          category: "Error",
+        });
+        return;
+      }
+
+      try {
+        const resp = await fetch(`/api/v1/students/${encodeURIComponent(student.idNumber)}/archive`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.backendToken}`,
+          },
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.success === false) {
+          const message = data.message || "Failed to archive student on the server.";
+          toast.error(message);
+          addAuditLog({
+            action: "API Error: PATCH /students/:id/archive",
+            user: currentUserEmail,
+            status: "Error",
+            details: message,
+            category: "API",
+          });
+          return;
+        }
+      } catch (error: any) {
+        const message = error?.message || "Network error while archiving student.";
+        toast.error(message);
+        addAuditLog({
+          action: "API Network Error: PATCH /students/:id/archive",
+          user: currentUserEmail,
+          status: "Error",
+          details: message,
+          category: "API",
+        });
+        return;
+      }
+
       const updatedStudents = students.map((s) => 
         s.id === student.id 
           ? { ...s, isDeleted: true, deletedAt: timestamp, updatedBy: user?.email || "Unknown" } 
@@ -186,7 +236,7 @@ export function Students() {
     }
   };
 
-  const handleStudentSubmit = () => {
+  const handleStudentSubmit = async () => {
     if (!studentFormData.idNumber.trim() || !studentFormData.firstName.trim() || !studentFormData.lastName.trim()) {
       toast.error("ID Number, First Name, and Last Name are required.");
       addAuditLog({
@@ -199,13 +249,14 @@ export function Students() {
       return;
     }
 
-    if (studentFormData.idNumber.length > 8) {
-      toast.error("ID Number cannot exceed 8 characters.");
+    const trimmedId = studentFormData.idNumber.trim();
+    if (trimmedId.length !== 8) {
+      toast.error("ID Number must be exactly 8 characters long.");
       addAuditLog({
         action: "Validation Error",
         user: user?.email || "Unknown",
         status: "Error",
-        details: `Student form submission failed: ID Number "${studentFormData.idNumber}" exceeds 8-character limit`,
+        details: `Student form submission failed: ID Number "${studentFormData.idNumber}" does not meet the 8-character VARCHAR(8) requirement`,
         category: "Error",
       });
       return;
@@ -215,7 +266,65 @@ export function Students() {
     const currentUser = user?.email || "Unknown";
     const generatedFullName = `${studentFormData.firstName.trim()} ${studentFormData.lastName.trim()}`;
 
+    // --- Sync with backend MySQL via API ---
+    if (!user || !user.backendToken) {
+      toast.error("Backend token missing. Please log in again to use the database-backed API.");
+      addAuditLog({
+        action: "API Auth Error",
+        user: currentUser,
+        status: "Error",
+        details: "Attempted to create a student but no backend JWT was available.",
+        category: "Error",
+      });
+      return;
+    }
+
     if (editingStudent) {
+      // Update existing student in the database
+      try {
+        const response = await fetch(`/api/v1/students/${encodeURIComponent(editingStudent.idNumber)}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.backendToken}`,
+          },
+          body: JSON.stringify({
+            firstName: studentFormData.firstName.trim(),
+            lastName: studentFormData.lastName.trim(),
+            section: studentFormData.section.trim(),
+            currentYear: Number(studentFormData.currentYear),
+            currentSemester: Number(studentFormData.currentSemester),
+          }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || data.success === false) {
+          const message = data.message || "Failed to update student on the server.";
+          toast.error(message);
+          addAuditLog({
+            action: "API Error: PUT /students/:id",
+            user: currentUser,
+            status: "Error",
+            details: message,
+            category: "API",
+          });
+          return;
+        }
+      } catch (error: any) {
+        const message = error?.message || "Network error while updating student on the backend.";
+        toast.error(message);
+        addAuditLog({
+          action: "API Network Error: PUT /students/:id",
+          user: currentUser,
+          status: "Error",
+          details: message,
+          category: "API",
+        });
+        return;
+      }
+
+      // --- Local UI state update (kept for immediate UX) ---
       const updatedStudents = students.map((s) =>
         s.id === editingStudent.id
           ? { 
@@ -236,13 +345,57 @@ export function Students() {
         category: "CRUD",
       });
     } else {
-      if (students.some(s => s.idNumber === studentFormData.idNumber)) {
-        toast.error("A student with this ID Number already exists!");
+      // Create new student in the database
+      try {
+        const response = await fetch("/api/v1/students", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.backendToken}`,
+          },
+          body: JSON.stringify({
+            idNumber: trimmedId,
+            firstName: studentFormData.firstName.trim(),
+            lastName: studentFormData.lastName.trim(),
+            section: studentFormData.section.trim(),
+          }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || data.success === false) {
+          const message = data.message || "Failed to add student on the server.";
+          toast.error(message);
+          addAuditLog({
+            action: "API Error: POST /students",
+            user: currentUser,
+            status: "Error",
+            details: message,
+            category: "API",
+          });
+          return;
+        }
+      } catch (error: any) {
+        const message = error?.message || "Network error while talking to the backend.";
+        toast.error(message);
+        addAuditLog({
+          action: "API Network Error: POST /students",
+          user: currentUser,
+          status: "Error",
+          details: message,
+          category: "API",
+        });
+        return;
+      }
+
+      // --- Local UI state update (kept for immediate UX) ---
+      if (students.some(s => s.idNumber === trimmedId)) {
+        toast.error("A student with this ID Number already exists locally!");
         addAuditLog({
           action: "Duplicate ID Error",
           user: currentUser,
           status: "Error",
-          details: `Student creation failed: ID Number "${studentFormData.idNumber}" already exists in the data store`,
+          details: `Student creation failed locally: ID Number "${studentFormData.idNumber}" already exists in the data store`,
           category: "Error",
         });
         return;
@@ -250,7 +403,7 @@ export function Students() {
 
       const newStudent: Student = {
         id: Date.now(),
-        idNumber: studentFormData.idNumber.trim(),
+        idNumber: trimmedId,
         firstName: studentFormData.firstName.trim(),
         lastName: studentFormData.lastName.trim(),
         fullName: generatedFullName,
@@ -262,12 +415,12 @@ export function Students() {
         createdBy: currentUser, updatedBy: currentUser,
       };
       saveStudents([...students, newStudent]);
-      toast.success("Student added successfully");
+      toast.success("Student added successfully (saved to MySQL and local view)");
       addAuditLog({
         action: "CREATE Student",
         user: currentUser,
         status: "Success",
-        details: `Created new student record: ${generatedFullName} (ID: ${studentFormData.idNumber}, Section: ${studentFormData.section})`,
+        details: `Created new student record and synced to MySQL: ${generatedFullName} (ID: ${studentFormData.idNumber}, Section: ${studentFormData.section})`,
         category: "CRUD",
       });
     }
