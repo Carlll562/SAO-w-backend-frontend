@@ -353,28 +353,40 @@ DELIMITER ;
 -- procedure SetStudentArchived
 -- -----------------------------------------------------
 
+USE `sao_db`;
+DROP PROCEDURE IF EXISTS `SetStudentArchived`;
+
 DELIMITER $$
-USE `sao_db`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `SetStudentArchived`(
     IN p_ID_Number VARCHAR(8),
     IN p_Archived TINYINT(1)
 )
 BEGIN
+    -- 1. Validate the ID length
     IF CHAR_LENGTH(p_ID_Number) <> 8 THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'ID_Number must be exactly 8 characters long.';
     END IF;
 
+    -- 2. Make sure the student exists
     IF NOT EXISTS (SELECT 1 FROM STUDENT WHERE ID_Number = p_ID_Number) THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'Student not found for archiving.';
     END IF;
 
+    -- 3. Archive/Restore the Student
     UPDATE STUDENT
     SET Is_Archived = p_Archived
     WHERE ID_Number = p_ID_Number;
-END$$
 
+    -- 4. NEW: Cascade the exact same Archive/Restore status to ALL their Enrollments!
+    UPDATE ENROLLMENT
+    SET Is_Archived = p_Archived,
+        Updated_At = NOW(),
+        Updated_By = 'registrar'
+    WHERE STUDENT_ID = p_ID_Number;
+    
+END$$
 DELIMITER ;
 
 -- -----------------------------------------------------
