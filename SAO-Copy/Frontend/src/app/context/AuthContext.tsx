@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 
 // --- Permissions Definition ---
 export interface UserPermissions {
@@ -221,34 +221,45 @@ export interface AuditLog {
 
 export function addAuditLog(log: Omit<AuditLog, "id" | "timestamp"> & { category?: LogCategory }) {
   try {
-    const logs = getAuditLogs();
+    // 1. Extract the category separately so we don't duplicate it!
+    const { category, ...restOfLog } = log;
+
+    // 2. Prepare the log object safely
     const newLog: AuditLog = {
       id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
       timestamp: new Date().toISOString(),
-      category: "CRUD",
-      ...log,
+      category: category || ("System" as LogCategory), 
+      ...restOfLog, // <--- Spread the rest of the log WITHOUT the category
     };
     
-    // Add new log to the beginning
+    // 3. Save locally for the frontend UI table to read instantly
+    const logs = getAuditLogs();
     logs.unshift(newLog);
-    
-    // Limit to the last 1000 logs to prevent LocalStorage quota issues
-    const trimmedLogs = logs.slice(0, 1000);
-    
+    const trimmedLogs = logs.slice(0, 1000); // Prevent storage overload
     localStorage.setItem("auditLogs", JSON.stringify(trimmedLogs));
-  } catch (error) {
-    console.error("Failed to add audit log:", error);
-    // Optionally handle quota exceeded specifically
-    if (error instanceof DOMException && error.name === "QuotaExceededError") {
-      // Attempt to clear older logs aggressively if we hit the limit
-      try {
-        const logs = getAuditLogs();
-        const aggressiveTrim = logs.slice(0, 500);
-        localStorage.setItem("auditLogs", JSON.stringify(aggressiveTrim));
-      } catch (retryError) {
-        console.error("Critical: Unable to save audit logs even after trimming.", retryError);
-      }
+
+    // 4. Send it directly to MongoDB!
+    const currentUserRaw = localStorage.getItem("currentUser");
+    let token = "";
+    if (currentUserRaw) {
+      const parsedUser = JSON.parse(currentUserRaw);
+      token = parsedUser.backendToken || "";
     }
+
+    // "Fire and forget" network request
+    fetch("/api/v1/logs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": token ? `Bearer ${token}` : ""
+      },
+      body: JSON.stringify(newLog)
+    }).catch(err => {
+      console.error("Failed to send audit log to backend:", err);
+    });
+
+  } catch (error) {
+    console.error("Critical: Failed to process audit log locally:", error);
   }
 }
 
