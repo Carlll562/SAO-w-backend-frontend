@@ -874,13 +874,6 @@ SET SQL_MODE=@OLD_SQL_MODE;
 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;
 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;
 
-/*STUDENTS*/
-call AddStudent('2024-001', 'Genova', 'Carl Dheyniel', 'A');
-call AddStudent('2024-002', 'James', 'Michael', 'A');
-call AddStudent('2024-003', 'Allen', 'Barry', 'A');
-call AddStudent('2024-004', 'Einstein', 'Albert', 'B');
-call AddStudent('2024-005', 'Euler', 'Leonhard', 'B');
-
 /* BASE SETUP DATA */
 INSERT INTO `year` (`ID`) VALUES (1), (2), (3), (4);
 
@@ -904,43 +897,3 @@ INSERT INTO `curriculum` (`PROGRAM_ID`, `YEAR_ID`, `SEMESTER_ID`, `COURSE_ID`) V
 (2, 2, 1, 5), (2, 2, 2, 1), (2, 2, 2, 2), (2, 2, 2, 3), (2, 2, 2, 4), (2, 2, 2, 5),
 (2, 2, 2, 6), (2, 3, 1, 1), (2, 3, 1, 3), (2, 3, 1, 5), (2, 3, 2, 1), (2, 3, 2, 2),
 (2, 3, 2, 3), (2, 3, 2, 4), (2, 3, 2, 6);
-
-/* -----------------------------------------------------
-   SILENT TEST DATA SETUP
------------------------------------------------------ */
--- 1. Create a temporary silent procedure just for this script
-DELIMITER $$
-CREATE PROCEDURE `StudentEnroll_Silent`(
-    IN STUDENT_FULLNAME VARCHAR(60), IN COURSE_CODE VARCHAR(50), IN PROGRAM_NAME VARCHAR(45), IN p_YEAR_ID INT, IN p_SEMESTER_ID INT
-)
-BEGIN
-    DECLARE v_student_id VARCHAR(8);
-    DECLARE v_curr_id INT;
-    SELECT ID_Number INTO v_student_id FROM student WHERE fullName = STUDENT_FULLNAME LIMIT 1;
-    SELECT curr.ID INTO v_curr_id FROM curriculum curr JOIN program p ON curr.PROGRAM_ID = p.ID JOIN course c ON curr.COURSE_ID = c.ID WHERE p.programName = PROGRAM_NAME AND c.Code = COURSE_CODE AND curr.YEAR_ID = p_YEAR_ID AND curr.SEMESTER_ID = p_SEMESTER_ID;
-
-    IF v_student_id IS NOT NULL AND v_curr_id IS NOT NULL THEN
-        INSERT INTO enrollment (Grade, Status, Created_By, Updated_By, STUDENT_ID, CURRICULUM_ID) VALUES ('(Ongoing)', 'Active', 'registrar', 'registrar', v_student_id, v_curr_id);
-        -- Notice there is no SELECT LAST_INSERT_ID() here! It is perfectly silent.
-    END IF;
-END$$
-DELIMITER ;
-
--- 2. Use the silent procedure to load your test data cleanly
-Call StudentEnroll_Silent('Carl Dheyniel Genova', 'DATAMA1', 'BSIT', 2, 1);
-Call StudentEnroll_Silent('Carl Dheyniel Genova', 'PROG1', 'BSIT', 2, 1);
-Call StudentEnroll_Silent('Carl Dheyniel Genova', 'WEBDEV1', 'BSIT', 2, 1);
-
-Call StudentEnroll_Silent('Michael James', 'DATAMA1', 'BSIT', 2, 1);
-Call StudentEnroll_Silent('Michael James', 'PROG1', 'BSIT', 2, 1);
-Call StudentEnroll_Silent('Michael James', 'WEBDEV1', 'BSIT', 2, 1);
-
-Call StudentEnroll_Silent('Barry Allen', 'DATAMA1', 'BSIT', 2, 1);
-Call StudentEnroll_Silent('Barry Allen', 'PROG1', 'BSIT', 2, 1);
-Call StudentEnroll_Silent('Barry Allen', 'WEBDEV1', 'BSIT', 2, 1);
-
-Call StudentEnroll_Silent('Albert Einstein', 'DATAMA1', 'BSCS', 2, 1);
-Call StudentEnroll_Silent('Leonhard Euler', 'DATAMA1', 'BSCS', 2, 1);
-
--- 3. Delete the temporary procedure so it leaves no trace
-DROP PROCEDURE `StudentEnroll_Silent`;
