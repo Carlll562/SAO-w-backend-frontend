@@ -193,9 +193,17 @@ export function Students() {
   const handleDeleteStudent = async (student: Student) => {
     if (window.confirm(`Are you sure you want to move ${student.fullName} to the Recycle Bin?`)) {
       const timestamp = new Date().toISOString();
+      const currentUserEmail = user?.email || "Unknown";
       
       if (!user || !user.backendToken) {
         toast.error("Backend token missing.");
+        addAuditLog({
+          action: "API Auth Error: Archive Student",
+          user: currentUserEmail,
+          status: "Error",
+          details: `Attempted to archive student ${student.fullName} (${student.idNumber}) but no backend JWT was available.`,
+          category: "API",
+        });
         return;
       }
 
@@ -210,41 +218,84 @@ export function Students() {
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || data.success === false) {
           toast.error(data.message || "Failed to archive student");
+          addAuditLog({
+            action: "API Error: PATCH /students/:id/archive",
+            user: currentUserEmail,
+            status: "Failed",
+            details: data.message || `Failed to archive student ${student.fullName} (${student.idNumber}) on the server.`,
+            category: "API",
+          });
           return;
         }
       } catch (error: any) {
         toast.error("Network error while archiving student.");
+        addAuditLog({
+          action: "API Network Error: PATCH /students/:id/archive",
+          user: currentUserEmail,
+          status: "Error",
+          details: error?.message || `Network error while archiving student ${student.fullName} (${student.idNumber}).`,
+          category: "API",
+        });
         return;
       }
 
       const updatedStudents = students.map((s) => 
         s.id === student.id 
-          ? { ...s, isDeleted: true, deletedAt: timestamp, updatedBy: user?.email || "Unknown" } 
+          ? { ...s, isDeleted: true, deletedAt: timestamp, updatedBy: currentUserEmail } 
           : s
       );
       saveStudents(updatedStudents);
       toast.success("Student moved to Recycle Bin");
+      addAuditLog({
+        action: "Archive Student",
+        user: currentUserEmail,
+        status: "Success",
+        details: `Moved student to Recycle Bin: ${student.fullName} (${student.idNumber})`,
+        category: "CRUD",
+      });
     }
   };
 
   const handleStudentSubmit = async () => {
+    const currentUser = user?.email || "Unknown";
+
     if (!studentFormData.idNumber.trim() || !studentFormData.firstName.trim() || !studentFormData.lastName.trim()) {
       toast.error("ID Number, First Name, and Last Name are required.");
+      addAuditLog({
+        action: "Validation Error: Student Form",
+        user: currentUser,
+        status: "Error",
+        details: "Student form submission failed: ID Number, First Name, and Last Name are required fields.",
+        category: "Error",
+      });
       return;
     }
 
     const trimmedId = studentFormData.idNumber.trim();
     if (trimmedId.length !== 8) {
       toast.error("ID Number must be exactly 8 characters long.");
+       addAuditLog({
+         action: "Validation Error: Student Form",
+         user: currentUser,
+         status: "Error",
+         details: `Student form submission failed: ID Number "${studentFormData.idNumber}" does not meet the 8-character VARCHAR(8) requirement.`,
+         category: "Error",
+       });
       return;
     }
 
     const timestamp = new Date().toISOString();
-    const currentUser = user?.email || "Unknown";
     const generatedFullName = `${studentFormData.firstName.trim()} ${studentFormData.lastName.trim()}`;
 
     if (!user || !user.backendToken) {
       toast.error("Backend token missing.");
+      addAuditLog({
+        action: "API Auth Error: Student Submit",
+        user: currentUser,
+        status: "Error",
+        details: "Attempted to create or update a student but no backend JWT was available.",
+        category: "API",
+      });
       return;
     }
 
@@ -268,10 +319,24 @@ export function Students() {
         const data = await response.json().catch(() => ({}));
         if (!response.ok || data.success === false) {
           toast.error(data.message || "Failed to update student");
+          addAuditLog({
+            action: "API Error: PUT /students/:id",
+            user: currentUser,
+            status: "Failed",
+            details: data.message || `Failed to update student ${generatedFullName} (ID: ${trimmedId}) on the server.`,
+            category: "API",
+          });
           return;
         }
       } catch (error: any) {
         toast.error("Network error while updating student");
+        addAuditLog({
+          action: "API Network Error: PUT /students/:id",
+          user: currentUser,
+          status: "Error",
+          details: error?.message || `Network error while updating student ${generatedFullName} (ID: ${trimmedId}) on the backend.`,
+          category: "API",
+        });
         return;
       }
 
@@ -287,6 +352,13 @@ export function Students() {
       );
       saveStudents(updatedStudents);
       toast.success("Student updated successfully");
+      addAuditLog({
+        action: "UPDATE Student",
+        user: currentUser,
+        status: "Success",
+        details: `Updated student record: ${generatedFullName} (ID: ${trimmedId}, Section: ${studentFormData.section})`,
+        category: "CRUD",
+      });
     } else {
       try {
         const response = await fetch("/api/v1/students", {
@@ -306,10 +378,24 @@ export function Students() {
         const data = await response.json().catch(() => ({}));
         if (!response.ok || data.success === false) {
           toast.error(data.message || "Failed to add student");
+          addAuditLog({
+            action: "API Error: POST /students",
+            user: currentUser,
+            status: "Failed",
+            details: data.message || `Failed to add student ${generatedFullName} (ID: ${trimmedId}) on the server.`,
+            category: "API",
+          });
           return;
         }
       } catch (error: any) {
         toast.error("Network error while talking to the backend.");
+        addAuditLog({
+          action: "API Network Error: POST /students",
+          user: currentUser,
+          status: "Error",
+          details: error?.message || "Network error while talking to the backend during student creation.",
+          category: "API",
+        });
         return;
       }
 
@@ -328,6 +414,13 @@ export function Students() {
       };
       saveStudents([...students, newStudent]);
       toast.success("Student added successfully");
+      addAuditLog({
+        action: "CREATE Student",
+        user: currentUser,
+        status: "Success",
+        details: `Created new student record and synced to MySQL: ${generatedFullName} (ID: ${trimmedId}, Section: ${studentFormData.section})`,
+        category: "CRUD",
+      });
     }
     setStudentDialogOpen(false);
   };
@@ -370,6 +463,13 @@ export function Students() {
 
       if (!user || !user.backendToken) {
         toast.error("Backend token missing. Please log in again to drop courses.");
+        addAuditLog({
+          action: "API Auth Error: Archive Enrollment",
+          user: currentUserEmail,
+          status: "Error",
+          details: `Attempted to archive enrollment ID ${enrollment.id} for student ${studentIdNumber} but no backend JWT was available.`,
+          category: "API",
+        });
         return;
       }
 
@@ -387,10 +487,24 @@ export function Students() {
         
         if (!resp.ok || data.success === false) {
           toast.error(data.message || "Failed to drop course on the server.");
+          addAuditLog({
+            action: "API Error: PATCH /students/enrollment/:id/archive",
+            user: currentUserEmail,
+            status: "Failed",
+            details: data.message || `Failed to drop course ${enrollment.courseCode || 'Curriculum ' + enrollment.curriculumId} for student ${studentIdNumber} on the server.`,
+            category: "API",
+          });
           return;
         }
       } catch (error: any) {
         toast.error("Network error while dropping course.");
+        addAuditLog({
+          action: "API Network Error: PATCH /students/enrollment/:id/archive",
+          user: currentUserEmail,
+          status: "Error",
+          details: error?.message || `Network error while dropping course ${enrollment.courseCode || 'Curriculum ' + enrollment.curriculumId} for student ${studentIdNumber}.`,
+          category: "API",
+        });
         return;
       }
 
@@ -401,6 +515,13 @@ export function Students() {
       );
       saveEnrollments(updatedEnrollments);
       toast.success("Course dropped successfully.");
+      addAuditLog({
+        action: "Archive Enrollment",
+        user: currentUserEmail,
+        status: "Success",
+        details: `Dropped course ${enrollment.courseCode || 'Curriculum ' + enrollment.curriculumId} for student ID ${studentIdNumber}.`,
+        category: "CRUD",
+      });
     }
   };
 
@@ -412,11 +533,25 @@ export function Students() {
 
     if (normalizedGrade.length > 9) {
       toast.error("Grade cannot exceed 9 characters.");
+      addAuditLog({
+        action: "Validation Error: Enrollment Grade",
+        user: user?.email || "Unknown",
+        status: "Error",
+        details: `Enrollment form failed: Grade "${normalizedGrade}" exceeds VARCHAR(9) limit.`,
+        category: "Error",
+      });
       return;
     }
 
     if (!GRADE_INPUT_REGEX.test(normalizedGrade)) {
       toast.error("Invalid Grade. Allowed: (Ongoing), R, F, or 1–100.");
+      addAuditLog({
+        action: "Validation Error: Enrollment Grade",
+        user: user?.email || "Unknown",
+        status: "Error",
+        details: `Enrollment form failed: Grade "${normalizedGrade}" does not satisfy the GradeUpdate() regex or VARCHAR(9) constraint.`,
+        category: "Error",
+      });
       return;
     }
 
@@ -432,6 +567,13 @@ export function Students() {
 
     if (!user || !user.backendToken) {
       toast.error("Backend token missing.");
+      addAuditLog({
+        action: "API Auth Error: Enrollment Submit",
+        user: currentUser,
+        status: "Error",
+        details: "Attempted to create or update an enrollment but no backend JWT was available.",
+        category: "API",
+      });
       return;
     }
 
@@ -452,10 +594,24 @@ export function Students() {
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || data.success === false) {
           toast.error(data.message || "Failed to update grade in the backend.");
+          addAuditLog({
+            action: "API Error: POST /grades",
+            user: currentUser,
+            status: "Failed",
+            details: data.message || `Failed to update grade for ${selectedStudent.fullName} (${(enrollmentFormData as any).courseCode || "unknown course"}).`,
+            category: "API",
+          });
           return;
         }
       } catch (error: any) {
         toast.error("Network error while updating grade");
+        addAuditLog({
+          action: "API Network Error: POST /grades",
+          user: currentUser,
+          status: "Error",
+          details: error?.message || `Network error while updating grade for ${selectedStudent.fullName}.`,
+          category: "API",
+        });
         return;
       }
 
@@ -476,6 +632,13 @@ export function Students() {
 
       saveEnrollments(updatedEnrollments);
       toast.success("Enrollment record updated successfully");
+      addAuditLog({
+        action: "UPDATE Enrollment",
+        user: currentUser,
+        status: "Success",
+        details: `Updated enrollment for student ID ${selectedStudentForEnrollment} — Course: ${(enrollmentFormData as any).courseCode || "N/A"}, Grade: ${normalizedGrade}, Status: ${derivedStatus}.`,
+        category: "CRUD",
+      });
     } else {
       
       let generatedId = Date.now(); // Fallback ID
@@ -498,6 +661,13 @@ export function Students() {
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || data.success === false) {
           toast.error(data.message || "Failed to create enrollment in the backend.");
+          addAuditLog({
+            action: "API Error: POST /students/enroll",
+            user: currentUser,
+            status: "Failed",
+            details: data.message || `Failed to create enrollment for ${selectedStudent.fullName} — Course: ${(enrollmentFormData as any).courseCode || "N/A"}, Program: ${(enrollmentFormData as any).programName || "N/A"}.`,
+            category: "API",
+          });
           return;
         }
         
@@ -508,6 +678,13 @@ export function Students() {
 
       } catch (error: any) {
         toast.error("Network error while creating enrollment");
+        addAuditLog({
+          action: "API Network Error: POST /students/enroll",
+          user: currentUser,
+          status: "Error",
+          details: error?.message || `Network error while creating enrollment for ${selectedStudent.fullName}.`,
+          category: "API",
+        });
         return;
       }
 
@@ -530,6 +707,13 @@ export function Students() {
 
       saveEnrollments([...enrollments, newEnrollment]);
       toast.success("Enrollment record added successfully");
+      addAuditLog({
+        action: "CREATE Enrollment",
+        user: currentUser,
+        status: "Success",
+        details: `Created enrollment for student ID ${selectedStudentForEnrollment} — Course: ${(enrollmentFormData as any).courseCode || "N/A"}, Program: ${(enrollmentFormData as any).programName || "N/A"}, Grade: ${normalizedGrade}, Status: ${derivedStatus}.`,
+        category: "CRUD",
+      });
     }
     setEnrollmentDialogOpen(false);
   };

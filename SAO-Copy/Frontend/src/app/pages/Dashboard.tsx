@@ -21,7 +21,7 @@ import {
   TableHeader, 
   TableRow 
 } from "../components/ui/table";
-import { getAuditLogs, AuditLog, useAuth } from "../context/AuthContext";
+import { getAuditLogs, AuditLog, useAuth, addAuditLog } from "../context/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 
@@ -152,10 +152,24 @@ export function Dashboard() {
       .then((data) => {
         setBackendStatus(`OK (last check: ${new Date(data.timestamp).toLocaleTimeString()})`);
         setBackendError(null);
+        addAuditLog({
+          action: "API Health Check",
+          user: "System",
+          status: "Success",
+          details: "Successfully pinged /api/v1/health from dashboard.",
+          category: "API",
+        });
       })
       .catch((err) => {
         setBackendStatus(null);
         setBackendError(`Error: ${err.message}`);
+        addAuditLog({
+          action: "API Error: GET /health",
+          user: "System",
+          status: "Error",
+          details: `Dashboard health check failed: ${err.message}`,
+          category: "API",
+        });
       });
   }, []);
 

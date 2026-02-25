@@ -117,6 +117,13 @@ export function RecycleBin() {
 
       if (!user || !user.backendToken) {
         toast.error("Backend token missing. Please log in again to restore students.");
+        addAuditLog({
+          action: "API Auth Error: Restore Student",
+          user: currentUserEmail,
+          status: "Error",
+          details: `Attempted to restore student ${student.fullName} (${student.idNumber}) but no backend JWT was available.`,
+          category: "API",
+        });
         return;
       }
 
@@ -131,10 +138,24 @@ export function RecycleBin() {
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || data.success === false) {
           toast.error(data.message || "Failed to restore student on the server.");
+          addAuditLog({
+            action: "API Error: PATCH /students/:id/restore",
+            user: currentUserEmail,
+            status: "Failed",
+            details: data.message || `Failed to restore student ${student.fullName} (${student.idNumber}) on the server.`,
+            category: "API",
+          });
           return;
         }
       } catch (error: any) {
         toast.error("Network error while restoring student.");
+        addAuditLog({
+          action: "API Network Error: PATCH /students/:id/restore",
+          user: currentUserEmail,
+          status: "Error",
+          details: error?.message || `Network error while restoring student ${student.fullName} (${student.idNumber}).`,
+          category: "API",
+        });
         return;
       }
 
@@ -163,6 +184,13 @@ export function RecycleBin() {
 
       if (!user || !user.backendToken) {
         toast.error("Backend token missing. Please log in again to restore courses.");
+        addAuditLog({
+          action: "API Auth Error: Restore Enrollment",
+          user: currentUserEmail,
+          status: "Error",
+          details: `Attempted to restore enrollment ID ${enrollment.id} for student ${enrollment.studentId} but no backend JWT was available.`,
+          category: "API",
+        });
         return;
       }
 
@@ -177,10 +205,24 @@ export function RecycleBin() {
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || data.success === false) {
           toast.error(data.message || "Failed to restore course on the server.");
+          addAuditLog({
+            action: "API Error: PATCH /students/enrollment/:id/restore",
+            user: currentUserEmail,
+            status: "Failed",
+            details: data.message || `Failed to restore course ${enrollment.courseCode || 'Curriculum ' + enrollment.curriculumId} for student ${enrollment.studentId} on the server.`,
+            category: "API",
+          });
           return;
         }
       } catch (error: any) {
         toast.error("Network error while restoring course.");
+        addAuditLog({
+          action: "API Network Error: PATCH /students/enrollment/:id/restore",
+          user: currentUserEmail,
+          status: "Error",
+          details: error?.message || `Network error while restoring course ${enrollment.courseCode || 'Curriculum ' + enrollment.curriculumId} for student ${enrollment.studentId}.`,
+          category: "API",
+        });
         return;
       }
 
