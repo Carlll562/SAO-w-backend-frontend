@@ -127,5 +127,25 @@ const register = async (req, res, next) => {
     }
 };
 
-module.exports = { login, register };
+// GET /api/v1/auth/users
+const listUsers = async (req, res, next) => {
+    try {
+        const users = await UserModel.listUsers();
+
+        const safeUsers = users.map((u) => ({
+            id: u._id?.toString?.() || '',
+            name: u.name,
+            email: u.email,
+            role: u.permissions?.canCreateAccounts ? 'Admin' : 'User',
+            permissions: u.permissions,
+            createdAt: u.createdAt,
+        }));
+
+        res.json({ success: true, users: safeUsers });
+    } catch (err) {
+        next(err);
+    }
+};
+
+module.exports = { login, register, listUsers };
 

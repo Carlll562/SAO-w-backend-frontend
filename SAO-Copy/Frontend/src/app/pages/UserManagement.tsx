@@ -30,7 +30,7 @@ interface PermissionTemplate {
 }
 
 interface UserData {
-  id: number;
+  id: string;
   name: string;
   email: string;
   password?: string; // Only used during creation/update
@@ -101,7 +101,6 @@ export function UserManagement() {
   }, []);
 
   const loadUsers = async () => {
-    // For now, we only load users from Mongo via a simple admin-only listing
     try {
       const currentUserRaw = localStorage.getItem("currentUser");
       const token = currentUserRaw ? JSON.parse(currentUserRaw).backendToken : "";
@@ -110,24 +109,30 @@ export function UserManagement() {
         return;
       }
 
-      const resp = await fetch("/api/v1/logs/system", {
-        // Placeholder: there is no dedicated users-list endpoint yet,
-        // so we keep the existing local list empty to avoid confusion.
+      const resp = await fetch("/api/v1/auth/users", {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${token}`,
         },
       });
 
-      if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+
+      if (!resp.ok || data.success === false) {
         setUsers([]);
         return;
       }
 
-      // In the current scope we don't have a backend "list users" API,
-      // so we skip populating the table from Mongo. Existing UI will
-      // still allow creating accounts which persist to Mongo.
-      setUsers([]);
+      const backendUsers: any[] = data.users || [];
+      const mapped: UserData[] = backendUsers.map((u) => ({
+        id: String(u.id),
+        name: u.name,
+        email: u.email,
+        role: u.role === "Admin" ? "Admin" : "User",
+        permissions: u.permissions || (u.role === "Admin" ? ADMIN_PERMISSIONS : USER_PERMISSIONS),
+      }));
+
+      setUsers(mapped);
     } catch {
       setUsers([]);
     }
@@ -153,7 +158,7 @@ export function UserManagement() {
     }
 
     const newUser: UserData = {
-      id: editingUser ? editingUser.id : Date.now(),
+      id: editingUser ? editingUser.id : "",
       name: userForm.name,
       email: userForm.email,
       role: userForm.permissions.canCreateAccounts ? "Admin" : "User",
@@ -206,6 +211,8 @@ export function UserManagement() {
       });
 
       setIsUserDialogOpen(false);
+      // Refresh list so the new user (or updated admin) appears
+      loadUsers();
     } catch (error: any) {
       toast.error("Network error while saving user");
       addAuditLog({

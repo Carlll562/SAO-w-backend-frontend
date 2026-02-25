@@ -48,6 +48,16 @@ const UserModel = {
 
         return user;
     },
+
+    // List all users (for admin UI)
+    listUsers: async () => {
+        const db = getMongoDb();
+        return db
+            .collection(COLLECTION)
+            .find({}, { projection: { passwordHash: 0 } })
+            .sort({ createdAt: 1 })
+            .toArray();
+    },
 };
 
 module.exports = UserModel;
