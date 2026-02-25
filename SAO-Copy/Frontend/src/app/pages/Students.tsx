@@ -25,11 +25,11 @@ import { addAuditLog, useAuth } from "../context/AuthContext";
 // ERD: student
 interface Student {
   id: number;
-  idNumber: string; // VARCHAR(8)
-  lastName: string; // VARCHAR(30)
-  firstName: string; // VARCHAR(30)
-  fullName: string; // VARCHAR(60)
-  section: string; // VARCHAR(45)
+  idNumber: string; 
+  lastName: string; 
+  firstName: string; 
+  fullName: string; 
+  section: string; 
   dateEnrolled: string; 
   currentYear: number; 
   currentSemester: number; 
@@ -38,24 +38,25 @@ interface Student {
   createdBy: string;
   updatedBy: string;
   isDeleted?: boolean;
-  archived?: boolean; // Mirrors Is_Archived from DB
+  archived?: boolean; 
 }
 
-// ERD: enrollment (Updated to match exact columns)
+// ERD: enrollment 
 interface Enrollment {
-  id: number; // ID INT
-  grade: string; // Grade VARCHAR(9)
-  status: string; // Status ENUM('Passed','Failed','Active') in DB
-  createdAt: string; // Created_At DATETIME
-  updatedAt: string; // Updated_At DATETIME
-  createdBy: string; // Created_By VARCHAR(45)
-  updatedBy: string; // Updated_By VARCHAR(45)
-  studentId: string; // STUDENT_ID VARCHAR (FK to student)
-  curriculumId: number; // CURRICULUM_ID INT (FK to curriculum)
-  courseCode?: string; // Derived: Course associated with this enrollment
-  programName?: string; // Derived: Program the course is under
-  yearId?: number; // YEAR_ID used by StudentEnroll
-  semesterId?: number; // SEMESTER_ID used by StudentEnroll
+  id: number; 
+  grade: string; 
+  status: string; 
+  createdAt: string; 
+  updatedAt: string; 
+  createdBy: string; 
+  updatedBy: string; 
+  studentId: string; 
+  curriculumId: number; 
+  courseCode?: string; 
+  programName?: string; 
+  yearId?: number; 
+  semesterId?: number; 
+  isArchived?: boolean; 
 }
 
 export function Students() {
@@ -64,7 +65,6 @@ export function Students() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   
-  // Student Dialog State
   const [studentDialogOpen, setStudentDialogOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [studentFormData, setStudentFormData] = useState({
@@ -76,7 +76,6 @@ export function Students() {
     currentSemester: 1,
   });
 
-  // Enrollment Dialog State
   const [enrollmentDialogOpen, setEnrollmentDialogOpen] = useState(false);
   const [editingEnrollment, setEditingEnrollment] = useState<Enrollment | null>(null);
   const [selectedStudentForEnrollment, setSelectedStudentForEnrollment] = useState<string | null>(null);
@@ -101,8 +100,6 @@ export function Students() {
     );
   }
 
-  // Grade input must respect DB GradeUpdate() constraints:
-  // (Ongoing), R, F, or integer 1–100
   const GRADE_INPUT_REGEX = /^(\(Ongoing\)|R|F|([1-9][0-9]?|100))$/;
 
   const deriveStatusFromGrade = (rawGrade: string): string => {
@@ -145,22 +142,6 @@ export function Students() {
         setEnrollments([]);
       }
     }
-
-    // Simulate API data-fetch logging
-    addAuditLog({
-      action: "GET /students",
-      user: "System",
-      status: "Success",
-      details: "Fetched student records from local data store",
-      category: "API",
-    });
-    addAuditLog({
-      action: "GET /enrollments",
-      user: "System",
-      status: "Success",
-      details: "Fetched enrollment records from local data store",
-      category: "API",
-    });
   }, []);
 
   const saveStudents = (updated: Student[]) => {
@@ -190,7 +171,6 @@ export function Students() {
       student.idNumber?.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  // --- STUDENT HANDLERS ---
   const handleAddStudent = () => {
     setEditingStudent(null);
     setStudentFormData({ idNumber: "", firstName: "", lastName: "", section: "", currentYear: 1, currentSemester: 1 });
@@ -213,18 +193,9 @@ export function Students() {
   const handleDeleteStudent = async (student: Student) => {
     if (window.confirm(`Are you sure you want to move ${student.fullName} to the Recycle Bin?`)) {
       const timestamp = new Date().toISOString();
-      const currentUserEmail = user?.email || "Unknown";
-
-      // Call backend to set archived = true
+      
       if (!user || !user.backendToken) {
-        toast.error("Backend token missing. Please log in again to archive students in the database.");
-        addAuditLog({
-          action: "API Auth Error",
-          user: currentUserEmail,
-          status: "Error",
-          details: "Attempted to archive a student but no backend JWT was available.",
-          category: "Error",
-        });
+        toast.error("Backend token missing.");
         return;
       }
 
@@ -238,27 +209,11 @@ export function Students() {
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || data.success === false) {
-          const message = data.message || "Failed to archive student on the server.";
-          toast.error(message);
-          addAuditLog({
-            action: "API Error: PATCH /students/:id/archive",
-            user: currentUserEmail,
-            status: "Error",
-            details: message,
-            category: "API",
-          });
+          toast.error(data.message || "Failed to archive student");
           return;
         }
       } catch (error: any) {
-        const message = error?.message || "Network error while archiving student.";
-        toast.error(message);
-        addAuditLog({
-          action: "API Network Error: PATCH /students/:id/archive",
-          user: currentUserEmail,
-          status: "Error",
-          details: message,
-          category: "API",
-        });
+        toast.error("Network error while archiving student.");
         return;
       }
 
@@ -268,41 +223,19 @@ export function Students() {
           : s
       );
       saveStudents(updatedStudents);
-      
       toast.success("Student moved to Recycle Bin");
-      addAuditLog({
-        action: "Move to Recycle Bin",
-        user: user?.email || "Unknown",
-        status: "Success",
-        details: `Moved student to Recycle Bin: ${student.fullName} (ID: ${student.idNumber})`,
-        category: "CRUD",
-      });
     }
   };
 
   const handleStudentSubmit = async () => {
     if (!studentFormData.idNumber.trim() || !studentFormData.firstName.trim() || !studentFormData.lastName.trim()) {
       toast.error("ID Number, First Name, and Last Name are required.");
-      addAuditLog({
-        action: "Validation Error",
-        user: user?.email || "Unknown",
-        status: "Error",
-        details: "Student form submission failed: ID Number, First Name, and Last Name are required fields",
-        category: "Error",
-      });
       return;
     }
 
     const trimmedId = studentFormData.idNumber.trim();
     if (trimmedId.length !== 8) {
       toast.error("ID Number must be exactly 8 characters long.");
-      addAuditLog({
-        action: "Validation Error",
-        user: user?.email || "Unknown",
-        status: "Error",
-        details: `Student form submission failed: ID Number "${studentFormData.idNumber}" does not meet the 8-character VARCHAR(8) requirement`,
-        category: "Error",
-      });
       return;
     }
 
@@ -310,21 +243,12 @@ export function Students() {
     const currentUser = user?.email || "Unknown";
     const generatedFullName = `${studentFormData.firstName.trim()} ${studentFormData.lastName.trim()}`;
 
-    // --- Sync with backend MySQL via API ---
     if (!user || !user.backendToken) {
-      toast.error("Backend token missing. Please log in again to use the database-backed API.");
-      addAuditLog({
-        action: "API Auth Error",
-        user: currentUser,
-        status: "Error",
-        details: "Attempted to create a student but no backend JWT was available.",
-        category: "Error",
-      });
+      toast.error("Backend token missing.");
       return;
     }
 
     if (editingStudent) {
-      // Update existing student in the database
       try {
         const response = await fetch(`/api/v1/students/${encodeURIComponent(editingStudent.idNumber)}`, {
           method: "PUT",
@@ -342,33 +266,15 @@ export function Students() {
         });
 
         const data = await response.json().catch(() => ({}));
-
         if (!response.ok || data.success === false) {
-          const message = data.message || "Failed to update student on the server.";
-          toast.error(message);
-          addAuditLog({
-            action: "API Error: PUT /students/:id",
-            user: currentUser,
-            status: "Error",
-            details: message,
-            category: "API",
-          });
+          toast.error(data.message || "Failed to update student");
           return;
         }
       } catch (error: any) {
-        const message = error?.message || "Network error while updating student on the backend.";
-        toast.error(message);
-        addAuditLog({
-          action: "API Network Error: PUT /students/:id",
-          user: currentUser,
-          status: "Error",
-          details: message,
-          category: "API",
-        });
+        toast.error("Network error while updating student");
         return;
       }
 
-      // --- Local UI state update (kept for immediate UX) ---
       const updatedStudents = students.map((s) =>
         s.id === editingStudent.id
           ? { 
@@ -381,15 +287,7 @@ export function Students() {
       );
       saveStudents(updatedStudents);
       toast.success("Student updated successfully");
-      addAuditLog({
-        action: "UPDATE Student",
-        user: currentUser,
-        status: "Success",
-        details: `Updated student record: ${generatedFullName} (ID: ${studentFormData.idNumber}, Section: ${studentFormData.section})`,
-        category: "CRUD",
-      });
     } else {
-      // Create new student in the database
       try {
         const response = await fetch("/api/v1/students", {
           method: "POST",
@@ -406,42 +304,12 @@ export function Students() {
         });
 
         const data = await response.json().catch(() => ({}));
-
         if (!response.ok || data.success === false) {
-          const message = data.message || "Failed to add student on the server.";
-          toast.error(message);
-          addAuditLog({
-            action: "API Error: POST /students",
-            user: currentUser,
-            status: "Error",
-            details: message,
-            category: "API",
-          });
+          toast.error(data.message || "Failed to add student");
           return;
         }
       } catch (error: any) {
-        const message = error?.message || "Network error while talking to the backend.";
-        toast.error(message);
-        addAuditLog({
-          action: "API Network Error: POST /students",
-          user: currentUser,
-          status: "Error",
-          details: message,
-          category: "API",
-        });
-        return;
-      }
-
-      // --- Local UI state update (kept for immediate UX) ---
-      if (students.some(s => s.idNumber === trimmedId)) {
-        toast.error("A student with this ID Number already exists locally!");
-        addAuditLog({
-          action: "Duplicate ID Error",
-          user: currentUser,
-          status: "Error",
-          details: `Student creation failed locally: ID Number "${studentFormData.idNumber}" already exists in the data store`,
-          category: "Error",
-        });
+        toast.error("Network error while talking to the backend.");
         return;
       }
 
@@ -459,19 +327,11 @@ export function Students() {
         createdBy: currentUser, updatedBy: currentUser,
       };
       saveStudents([...students, newStudent]);
-      toast.success("Student added successfully (saved to MySQL and local view)");
-      addAuditLog({
-        action: "CREATE Student",
-        user: currentUser,
-        status: "Success",
-        details: `Created new student record and synced to MySQL: ${generatedFullName} (ID: ${studentFormData.idNumber}, Section: ${studentFormData.section})`,
-        category: "CRUD",
-      });
+      toast.success("Student added successfully");
     }
     setStudentDialogOpen(false);
   };
 
-  // --- ENROLLMENT HANDLERS ---
   const handleOpenAddEnrollment = (studentIdNumber: string) => {
     const targetStudent = students.find((s) => s.idNumber === studentIdNumber);
     setEditingEnrollment(null);
@@ -503,6 +363,47 @@ export function Students() {
     setEnrollmentDialogOpen(true);
   };
 
+  const handleDeleteEnrollment = async (enrollment: Enrollment, studentIdNumber: string) => {
+    if (window.confirm(`Are you sure you want to drop this course (${enrollment.courseCode || 'Curriculum ID ' + enrollment.curriculumId})?`)) {
+      const timestamp = new Date().toISOString();
+      const currentUserEmail = user?.email || "Unknown";
+
+      if (!user || !user.backendToken) {
+        toast.error("Backend token missing. Please log in again to drop courses.");
+        return;
+      }
+
+      // We use the exact ID in the URL now!
+      try {
+        const resp = await fetch(`/api/v1/students/enrollment/${enrollment.id}/archive`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.backendToken}`,
+          },
+        });
+        
+        const data = await resp.json().catch(() => ({}));
+        
+        if (!resp.ok || data.success === false) {
+          toast.error(data.message || "Failed to drop course on the server.");
+          return;
+        }
+      } catch (error: any) {
+        toast.error("Network error while dropping course.");
+        return;
+      }
+
+      const updatedEnrollments = enrollments.map((e) => 
+        e.id === enrollment.id 
+          ? { ...e, isArchived: true, updatedAt: timestamp, updatedBy: currentUserEmail } 
+          : e
+      );
+      saveEnrollments(updatedEnrollments);
+      toast.success("Course dropped successfully.");
+    }
+  };
+
   const handleEnrollmentSubmit = async () => {
     if (!selectedStudentForEnrollment) return;
     
@@ -511,25 +412,11 @@ export function Students() {
 
     if (normalizedGrade.length > 9) {
       toast.error("Grade cannot exceed 9 characters.");
-      addAuditLog({
-        action: "Validation Error",
-        user: user?.email || "Unknown",
-        status: "Error",
-        details: `Enrollment form failed: Grade "${normalizedGrade}" exceeds VARCHAR(9) limit`,
-        category: "Error",
-      });
       return;
     }
 
     if (!GRADE_INPUT_REGEX.test(normalizedGrade)) {
       toast.error("Invalid Grade. Allowed: (Ongoing), R, F, or 1–100.");
-      addAuditLog({
-        action: "Validation Error",
-        user: user?.email || "Unknown",
-        status: "Error",
-        details: `Enrollment form failed: Grade "${normalizedGrade}" does not satisfy the GradeUpdate() regex or VARCHAR(9) constraint`,
-        category: "Error",
-      });
       return;
     }
 
@@ -537,7 +424,6 @@ export function Students() {
     const currentUser = user?.email || "Unknown";
     const derivedStatus = deriveStatusFromGrade(normalizedGrade);
 
-    // Resolve the selected student to derive program/year/semester and fullName for backend calls
     const selectedStudent = students.find((s) => s.idNumber === selectedStudentForEnrollment);
     if (!selectedStudent) {
       toast.error("Selected student not found. Please reload the page.");
@@ -545,19 +431,11 @@ export function Students() {
     }
 
     if (!user || !user.backendToken) {
-      toast.error("Backend token missing. Please log in again to save enrollments to the database.");
-      addAuditLog({
-        action: "API Auth Error",
-        user: currentUser,
-        status: "Error",
-        details: "Attempted to create or update an enrollment but no backend JWT was available.",
-        category: "Error",
-      });
+      toast.error("Backend token missing.");
       return;
     }
 
     if (editingEnrollment) {
-      // 1) Sync grade change to backend via GradeUpdate stored procedure
       try {
         const resp = await fetch("/api/v1/grades", {
           method: "POST",
@@ -573,31 +451,14 @@ export function Students() {
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || data.success === false) {
-          const message = data.message || "Failed to update grade in the backend.";
-          toast.error(message);
-          addAuditLog({
-            action: "API Error: POST /grades",
-            user: currentUser,
-            status: "Error",
-            details: message,
-            category: "API",
-          });
+          toast.error(data.message || "Failed to update grade in the backend.");
           return;
         }
       } catch (error: any) {
-        const message = error?.message || "Network error while updating grade in the backend.";
-        toast.error(message);
-        addAuditLog({
-          action: "API Network Error: POST /grades",
-          user: currentUser,
-          status: "Error",
-          details: message,
-          category: "API",
-        });
+        toast.error("Network error while updating grade");
         return;
       }
 
-      // 2) Update local enrollment cache for UI
       const updatedEnrollments = enrollments.map((e) =>
         e.id === editingEnrollment.id
           ? {
@@ -615,15 +476,10 @@ export function Students() {
 
       saveEnrollments(updatedEnrollments);
       toast.success("Enrollment record updated successfully");
-      addAuditLog({
-        action: "UPDATE Enrollment",
-        user: currentUser,
-        status: "Success",
-        details: `Updated enrollment for student ID ${selectedStudentForEnrollment} — Curriculum: ${enrollmentFormData.curriculumId}, Grade: ${normalizedGrade}, Status: ${derivedStatus}, Course: ${(enrollmentFormData as any).courseCode || "N/A"}, Program: ${(enrollmentFormData as any).programName || "N/A"}`,
-        category: "CRUD",
-      });
     } else {
-      // 1) Create enrollment in backend using StudentEnroll stored procedure
+      
+      let generatedId = Date.now(); // Fallback ID
+
       try {
         const resp = await fetch("/api/v1/students/enroll", {
           method: "POST",
@@ -641,33 +497,23 @@ export function Students() {
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || data.success === false) {
-          const message = data.message || "Failed to create enrollment in the backend.";
-          toast.error(message);
-          addAuditLog({
-            action: "API Error: POST /students/enroll",
-            user: currentUser,
-            status: "Error",
-            details: message,
-            category: "API",
-          });
+          toast.error(data.message || "Failed to create enrollment in the backend.");
           return;
         }
+        
+        // Grab the real ID sent back from MySQL!
+        if (data.enrollmentId) {
+            generatedId = data.enrollmentId;
+        }
+
       } catch (error: any) {
-        const message = error?.message || "Network error while creating enrollment in the backend.";
-        toast.error(message);
-        addAuditLog({
-          action: "API Network Error: POST /students/enroll",
-          user: currentUser,
-          status: "Error",
-          details: message,
-          category: "API",
-        });
+        toast.error("Network error while creating enrollment");
         return;
       }
 
-      // 2) Add local enrollment record for UI
+      // Save using the real DB ID!
       const newEnrollment: Enrollment = {
-        id: Date.now(),
+        id: generatedId,
         grade: normalizedGrade,
         status: derivedStatus,
         createdAt: timestamp,
@@ -684,13 +530,6 @@ export function Students() {
 
       saveEnrollments([...enrollments, newEnrollment]);
       toast.success("Enrollment record added successfully");
-      addAuditLog({
-        action: "CREATE Enrollment",
-        user: currentUser,
-        status: "Success",
-        details: `Created enrollment for student ID ${selectedStudentForEnrollment} — Curriculum: ${enrollmentFormData.curriculumId}, Grade: ${normalizedGrade}, Status: ${derivedStatus}, Course: ${(enrollmentFormData as any).courseCode || "N/A"}, Program: ${(enrollmentFormData as any).programName || "N/A"}`,
-        category: "CRUD",
-      });
     }
     setEnrollmentDialogOpen(false);
   };
@@ -720,7 +559,6 @@ export function Students() {
         />
       </div>
 
-      {/* Main Student Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto shadow-sm">
         <Table>
           <TableHeader>
@@ -739,7 +577,7 @@ export function Students() {
           <TableBody>
             {filteredStudents.map((student) => {
               const isExpanded = expandedRows.has(student.id);
-              const studentEnrollments = enrollments.filter(e => e.studentId === student.idNumber);
+              const studentEnrollments = enrollments.filter(e => e.studentId === student.idNumber && !e.isArchived);
 
               return (
                 <React.Fragment key={student.id}>
@@ -772,13 +610,11 @@ export function Students() {
                     </TableCell>
                   </TableRow>
 
-                  {/* Expanded Enrollment Sub-Table */}
                   {isExpanded && (
                     <TableRow className="bg-gray-50/50">
                       <TableCell colSpan={9} className="p-0 border-b">
                         <div className="px-14 py-4">
                           <div className="rounded-md border border-gray-200 bg-white shadow-sm overflow-hidden">
-                            {/* Sub-table Header with Add Button */}
                             <div className="bg-gray-100 px-4 py-3 border-b flex justify-between items-center">
                               <span className="font-semibold text-sm text-gray-700">Enrollment Records</span>
                               {hasPermission("canManageStudents") && (
@@ -830,15 +666,26 @@ export function Students() {
                                       <TableCell className="text-xs text-gray-500">{new Date(enr.updatedAt).toLocaleDateString()}</TableCell>
                                       <TableCell className="text-right">
                                         {hasPermission("canManageStudents") && (
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                            onClick={() => handleOpenEditEnrollment(enr, student.idNumber)}
-                                            title="Edit Enrollment"
-                                          >
-                                            <Pencil className="w-3 h-3" />
-                                          </Button>
+                                          <div className="flex justify-end items-center">
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                              onClick={() => handleOpenEditEnrollment(enr, student.idNumber)}
+                                              title="Edit Enrollment"
+                                            >
+                                              <Pencil className="w-3 h-3" />
+                                            </Button>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-50 ml-1"
+                                              onClick={() => handleDeleteEnrollment(enr, student.idNumber)}
+                                              title="Drop Course"
+                                            >
+                                              <Trash2 className="w-3 h-3" />
+                                            </Button>
+                                          </div>
                                         )}
                                       </TableCell>
                                     </TableRow>
@@ -871,7 +718,6 @@ export function Students() {
         </Table>
       </div>
 
-      {/* --- STUDENT DIALOG --- */}
       <Dialog open={studentDialogOpen} onOpenChange={setStudentDialogOpen}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
@@ -953,7 +799,6 @@ export function Students() {
         </DialogContent>
       </Dialog>
 
-      {/* --- ADD / EDIT ENROLLMENT DIALOG --- */}
       <Dialog open={enrollmentDialogOpen} onOpenChange={setEnrollmentDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -1043,7 +888,7 @@ export function Students() {
                   })
                 }
                 placeholder="e.g. 85"
-                maxLength={9} /* EXACT ERD LIMIT: VARCHAR(9) */
+                maxLength={9} 
               />
             </div>
             <div className="space-y-2">
