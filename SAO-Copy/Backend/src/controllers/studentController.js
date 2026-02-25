@@ -13,7 +13,7 @@ const validateStudentId = (id) => {
 
 const addStudent = async (req, res, next) => {
     const studentData = req.body;
-    const performer = req.user?.username || 'Unknown User'; 
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown User'; 
 
     try {
         const { idNumber, lastName, firstName, section } = studentData;
@@ -76,7 +76,7 @@ const addStudent = async (req, res, next) => {
 };
 
 const updateStudent = async (req, res, next) => {
-    const performer = req.user?.username || 'Unknown User';
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown User';
     const { id } = req.params;
     const { firstName, lastName, section, currentYear, currentSemester } = req.body;
 
@@ -153,7 +153,7 @@ const updateStudent = async (req, res, next) => {
 };
 
 const setArchivedStatus = async (req, res, next) => {
-    const performer = req.user?.username || 'Unknown User';
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown User';
     const { id } = req.params;
     const { archived } = req.body;
 

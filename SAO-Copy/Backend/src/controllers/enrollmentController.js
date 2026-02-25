@@ -3,7 +3,7 @@ const AuditModel = require('../models/auditModel');
 
 const enrollStudent = async (req, res, next) => {
     const enrollData = req.body;
-    const performer = req.user?.username || 'Unknown User';
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown User';
 
     try {
         if (!enrollData.fullName || !enrollData.courseCode || !enrollData.programName || !enrollData.yearId || !enrollData.semesterId) {
@@ -42,7 +42,7 @@ const enrollStudent = async (req, res, next) => {
 const archiveEnrollment = async (req, res, next) => {
     const { id } = req.params; 
     const { isArchived } = req.body; 
-    const performer = req.user?.username || 'Unknown User';
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown User';
 
     try {
         if (id === undefined || isArchived === undefined) {

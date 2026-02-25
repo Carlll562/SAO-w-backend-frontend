@@ -3,7 +3,7 @@ const AuditModel = require('../models/auditModel');
 
 const updateStudentGrade = async (req, res, next) => {
     const { fullname, courseCode, rawGrade } = req.body;
-    const performer = req.user?.username || 'Unknown Performer';
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown Performer';
 
     try {
         await GradeModel.updateGrade({ fullname, courseCode, rawGrade });

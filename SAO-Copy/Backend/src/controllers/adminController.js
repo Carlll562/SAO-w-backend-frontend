@@ -4,7 +4,7 @@ const AuditModel = require('../models/auditModel');
 // --- ADD COURSE ---
 const createCourse = async (req, res, next) => {
     const { name, code, units } = req.body;
-    const performer = req.user?.username || 'Unknown Admin';
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown Admin';
 
     try {
         if (!name || !code || !units) throw new Error("Missing Course Name, Code, or Units.");
@@ -33,7 +33,7 @@ const createCourse = async (req, res, next) => {
 // --- ADD PROGRAM ---
 const createProgram = async (req, res, next) => {
     const { name } = req.body;
-    const performer = req.user?.username || 'Unknown Admin';
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown Admin';
 
     try {
         if (!name) throw new Error("Program name is required.");
@@ -62,7 +62,7 @@ const createProgram = async (req, res, next) => {
 // --- ADD CURRICULUM ---
 const createCurriculumEntry = async (req, res, next) => {
     const { programName, year, semester, courseCode } = req.body;
-    const performer = req.user?.username || 'Unknown Admin';
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown Admin';
 
     try {
         if (!programName || !year || !semester || !courseCode) throw new Error("Missing Curriculum parameters.");

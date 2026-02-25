@@ -28,11 +28,19 @@ app.get('/api/v1/health', (req, res) => {
 });
 
 app.post('/api/v1/auth/test-login', (req, res) => {
+    const { email } = req.body || {};
+
+    // Use the frontend user's email as the canonical username for logging.
+    // This allows audit logs to correctly attribute actions to any account,
+    // not just the default admin.
+    const username = email || 'admin@example.com';
+
     const token = jwt.sign(
-        { id: 1, name: 'Admin_Registrar', role: 'registrar' }, 
-        process.env.JWT_SECRET, 
+        { id: 1, username, name: username, role: 'registrar' },
+        process.env.JWT_SECRET,
         { expiresIn: '24h' }
     );
+
     res.json({ token });
 });
 

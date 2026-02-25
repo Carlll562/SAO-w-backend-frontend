@@ -3,7 +3,7 @@ const AuditModel = require('../models/auditModel');
 
 const getTranscript = async (req, res, next) => {
     const { id } = req.params;
-    const performer = req.user?.username || 'Unknown User';
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown User';
 
     try {
         const data = await ReportModel.getTranscript(id);
@@ -21,7 +21,7 @@ const getTranscript = async (req, res, next) => {
 };
 
 const getDeansList = async (req, res, next) => {
-    const performer = req.user?.username || 'Unknown User';
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown User';
     try {
         const data = await ReportModel.getDeansList();
         await AuditModel.logAction('system', {
@@ -37,7 +37,7 @@ const getDeansList = async (req, res, next) => {
 
 const getStudentGWA = async (req, res, next) => {
     const { id } = req.params;
-    const performer = req.user?.username || 'Unknown User';
+    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown User';
     try {
         const gwa = await ReportModel.getStudentGWA(id);
         await AuditModel.logAction('system', {
