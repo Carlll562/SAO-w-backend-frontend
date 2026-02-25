@@ -33,7 +33,7 @@ interface Student {
   archived?: boolean; 
 }
 
-// ERD: enrollment (Added so RecycleBin knows what an enrollment looks like)
+// ERD: enrollment
 interface Enrollment {
   id: number; 
   grade: string; 
@@ -55,8 +55,6 @@ export function RecycleBin() {
   const [students, setStudents] = useState<Student[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  
-  // NEW: Toggle state between viewing Students or Courses
   const [viewMode, setViewMode] = useState<"students" | "enrollments">("students");
 
   const { user, hasPermission } = useAuth();
@@ -113,17 +111,9 @@ export function RecycleBin() {
   const handleRestoreStudent = async (student: Student) => {
     if (window.confirm(`Are you sure you want to restore ${student.fullName}?`)) {
       const timestamp = new Date().toISOString();
-      const currentUserEmail = user?.email || "Unknown";
 
       if (!user || !user.backendToken) {
         toast.error("Backend token missing. Please log in again to restore students.");
-        addAuditLog({
-          action: "API Auth Error: Restore Student",
-          user: currentUserEmail,
-          status: "Error",
-          details: `Attempted to restore student ${student.fullName} (${student.idNumber}) but no backend JWT was available.`,
-          category: "API",
-        });
         return;
       }
 
@@ -138,24 +128,10 @@ export function RecycleBin() {
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || data.success === false) {
           toast.error(data.message || "Failed to restore student on the server.");
-          addAuditLog({
-            action: "API Error: PATCH /students/:id/restore",
-            user: currentUserEmail,
-            status: "Failed",
-            details: data.message || `Failed to restore student ${student.fullName} (${student.idNumber}) on the server.`,
-            category: "API",
-          });
           return;
         }
       } catch (error: any) {
         toast.error("Network error while restoring student.");
-        addAuditLog({
-          action: "API Network Error: PATCH /students/:id/restore",
-          user: currentUserEmail,
-          status: "Error",
-          details: error?.message || `Network error while restoring student ${student.fullName} (${student.idNumber}).`,
-          category: "API",
-        });
         return;
       }
 
@@ -180,17 +156,9 @@ export function RecycleBin() {
   const handleRestoreEnrollment = async (enrollment: Enrollment) => {
     if (window.confirm(`Are you sure you want to restore the course ${enrollment.courseCode} for Student ${enrollment.studentId}?`)) {
       const timestamp = new Date().toISOString();
-      const currentUserEmail = user?.email || "Unknown";
 
       if (!user || !user.backendToken) {
         toast.error("Backend token missing. Please log in again to restore courses.");
-        addAuditLog({
-          action: "API Auth Error: Restore Enrollment",
-          user: currentUserEmail,
-          status: "Error",
-          details: `Attempted to restore enrollment ID ${enrollment.id} for student ${enrollment.studentId} but no backend JWT was available.`,
-          category: "API",
-        });
         return;
       }
 
@@ -205,24 +173,10 @@ export function RecycleBin() {
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || data.success === false) {
           toast.error(data.message || "Failed to restore course on the server.");
-          addAuditLog({
-            action: "API Error: PATCH /students/enrollment/:id/restore",
-            user: currentUserEmail,
-            status: "Failed",
-            details: data.message || `Failed to restore course ${enrollment.courseCode || 'Curriculum ' + enrollment.curriculumId} for student ${enrollment.studentId} on the server.`,
-            category: "API",
-          });
           return;
         }
       } catch (error: any) {
         toast.error("Network error while restoring course.");
-        addAuditLog({
-          action: "API Network Error: PATCH /students/enrollment/:id/restore",
-          user: currentUserEmail,
-          status: "Error",
-          details: error?.message || `Network error while restoring course ${enrollment.courseCode || 'Curriculum ' + enrollment.curriculumId} for student ${enrollment.studentId}.`,
-          category: "API",
-        });
         return;
       }
 
@@ -341,7 +295,8 @@ export function RecycleBin() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Student ID</TableHead>
+                <TableHead>ID Number</TableHead>
+                <TableHead>Student Name</TableHead>
                 <TableHead>Course Code</TableHead>
                 <TableHead>Program</TableHead>
                 <TableHead>Grade / Status</TableHead>
@@ -350,32 +305,39 @@ export function RecycleBin() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {deletedEnrollments.map((enr) => (
-                <TableRow key={enr.id}>
-                  <TableCell className="font-mono font-medium text-gray-500">{enr.studentId}</TableCell>
-                  <TableCell className="font-medium text-gray-500">{enr.courseCode || `Curriculum ${enr.curriculumId}`}</TableCell>
-                  <TableCell className="text-gray-500">{enr.programName || "N/A"}</TableCell>
-                  <TableCell className="text-gray-500">{enr.grade} ({enr.status})</TableCell>
-                  <TableCell className="text-sm text-gray-500">
-                    {enr.updatedAt ? new Date(enr.updatedAt).toLocaleString() : "-"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {hasPermission("canManageStudents") && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
-                      onClick={() => handleRestoreEnrollment(enr)}
-                    >
-                      <RefreshCw className="w-4 h-4 mr-1" /> Restore
-                    </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {deletedEnrollments.map((enr) => {
+                const studentProfile = students.find((s) => s.idNumber === enr.studentId);
+                const studentName = studentProfile ? studentProfile.fullName : "Unknown Student";
+
+                return (
+                  <TableRow key={enr.id}>
+                    <TableCell className="font-mono font-medium text-gray-500">{enr.studentId}</TableCell>
+                    <TableCell className="text-gray-500">{studentName}</TableCell>
+                    <TableCell className="font-medium text-gray-500">{enr.courseCode || `Curriculum ${enr.curriculumId}`}</TableCell>
+                    <TableCell className="text-gray-500">{enr.programName || "N/A"}</TableCell>
+                    <TableCell className="text-gray-500">{enr.grade} ({enr.status})</TableCell>
+                    <TableCell className="text-sm text-gray-500">
+                      {enr.updatedAt ? new Date(enr.updatedAt).toLocaleString() : "-"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {hasPermission("canManageStudents") && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
+                        onClick={() => handleRestoreEnrollment(enr)}
+                      >
+                        <RefreshCw className="w-4 h-4 mr-1" /> Restore
+                      </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
               {deletedEnrollments.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-12 text-gray-500">
+                  {/* Updated colSpan to 7 to account for the new column */}
+                  <TableCell colSpan={7} className="text-center py-12 text-gray-500">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Trash2 className="w-8 h-8 text-gray-300" />
                       <p>No dropped courses found.</p>
