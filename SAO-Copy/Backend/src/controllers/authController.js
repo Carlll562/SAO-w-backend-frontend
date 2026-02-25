@@ -29,7 +29,22 @@ const login = async (req, res, next) => {
     }
 
     try {
-        const user = await UserModel.verifyCredentials(email, password);
+        let user = await UserModel.verifyCredentials(email, password);
+
+        // Backwards-compatible seeding for the example admin account.
+        // If no Mongo user exists yet and the credentials match the default
+        // example admin, automatically create that account in Mongo so
+        // existing demo credentials keep working.
+        if (!user && email === 'admin@example.com' && password === 'admin123') {
+            user = await UserModel.createUser({
+                name: 'Admin User',
+                email,
+                password,
+                role: 'Admin',
+                permissions: { canCreateAccounts: true, canManageStudents: true, canViewDashboard: true, canViewStudents: true, canViewAuditLogs: true, canViewRecycleBin: true },
+            });
+        }
+
         if (!user) {
             await AuditModel.logAction('Error', {
                 performer: email,
