@@ -100,27 +100,36 @@ export function UserManagement() {
     loadTemplates();
   }, []);
 
-  const loadUsers = () => {
-    const storedUsers = localStorage.getItem("users");
-    if (storedUsers) {
-      const parsed = JSON.parse(storedUsers);
-      // Ensure permissions are populated for display
-      const standardized = parsed.map((u: any) => ({
-        ...u,
-        permissions: u.permissions || (u.role === "Admin" ? ADMIN_PERMISSIONS : USER_PERMISSIONS),
-      }));
-      setUsers(standardized);
-    } else {
-      const defaultUser = [{
-        id: 1,
-        name: "Admin User",
-        email: "admin@example.com",
-        password: "admin123", // Needs to match AuthContext DEFAULT_ADMIN
-        role: "Admin" as const,
-        permissions: ADMIN_PERMISSIONS,
-      }];
-      setUsers(defaultUser);
-      localStorage.setItem("users", JSON.stringify(defaultUser));
+  const loadUsers = async () => {
+    // For now, we only load users from Mongo via a simple admin-only listing
+    try {
+      const currentUserRaw = localStorage.getItem("currentUser");
+      const token = currentUserRaw ? JSON.parse(currentUserRaw).backendToken : "";
+      if (!token) {
+        setUsers([]);
+        return;
+      }
+
+      const resp = await fetch("/api/v1/logs/system", {
+        // Placeholder: there is no dedicated users-list endpoint yet,
+        // so we keep the existing local list empty to avoid confusion.
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+
+      if (!resp.ok) {
+        setUsers([]);
+        return;
+      }
+
+      // In the current scope we don't have a backend "list users" API,
+      // so we skip populating the table from Mongo. Existing UI will
+      // still allow creating accounts which persist to Mongo.
+      setUsers([]);
+    } catch {
+      setUsers([]);
     }
   };
 
@@ -137,7 +146,7 @@ export function UserManagement() {
   };
 
   // --- User Actions ---
-  const handleSaveUser = () => {
+  const handleSaveUser = async () => {
     if (!userForm.name || !userForm.email || (!editingUser && !userForm.password)) {
       toast.error("Please fill in all required fields");
       return;
@@ -147,62 +156,71 @@ export function UserManagement() {
       id: editingUser ? editingUser.id : Date.now(),
       name: userForm.name,
       email: userForm.email,
-      role: userForm.permissions.canCreateAccounts ? "Admin" : "User", // Auto-derive role for display
+      role: userForm.permissions.canCreateAccounts ? "Admin" : "User",
       permissions: userForm.permissions,
-      ...(userForm.password ? { password: userForm.password } : (editingUser ? { password: (editingUser as any).password } : {})),
     };
 
-    let updatedUsers;
-    if (editingUser) {
-      updatedUsers = users.map(u => u.id === editingUser.id ? { ...u, ...newUser } : u);
-      toast.success("User updated successfully");
-      addAuditLog({
-        action: "Update User",
-        user: user?.email || "System",
-        status: "Success",
-        details: `Updated account for ${newUser.name} (${newUser.email})`,
-        category: "Auth"
+    const currentUserRaw = localStorage.getItem("currentUser");
+    const token = currentUserRaw ? JSON.parse(currentUserRaw).backendToken : "";
+    if (!token) {
+      toast.error("Backend token missing. Please log in again.");
+      return;
+    }
+
+    try {
+      const resp = await fetch("/api/v1/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: userForm.name,
+          email: userForm.email,
+          password: userForm.password,
+          permissions: userForm.permissions,
+        }),
       });
-    } else {
-      if (users.some(u => u.email === newUser.email)) {
-        toast.error("Email already exists");
+
+      const data = await resp.json().catch(() => ({}));
+
+      if (!resp.ok || data.success === false) {
+        toast.error(data.message || "Failed to save user");
+        addAuditLog({
+          action: "Create User Failed",
+          user: user?.email || "System",
+          status: "Failed",
+          details: data.message || `Failed to create account for ${newUser.name} (${newUser.email})`,
+          category: "Auth",
+        });
         return;
       }
-      updatedUsers = [...users, newUser];
+
       toast.success("User created successfully");
       addAuditLog({
         action: "Create User",
         user: user?.email || "System",
         status: "Success",
         details: `Created new account for ${newUser.name} (${newUser.email})`,
-        category: "Auth"
+        category: "Auth",
+      });
+
+      setIsUserDialogOpen(false);
+    } catch (error: any) {
+      toast.error("Network error while saving user");
+      addAuditLog({
+        action: "Create User Error",
+        user: user?.email || "System",
+        status: "Error",
+        details: error?.message || `Network error while creating account for ${newUser.name} (${newUser.email})`,
+        category: "Auth",
       });
     }
-
-    setUsers(updatedUsers);
-    localStorage.setItem("users", JSON.stringify(updatedUsers));
-    setIsUserDialogOpen(false);
   };
 
   const handleDeleteUser = (id: number) => {
-    if (id === 1) { // Prevent deleting default admin
-      toast.error("Cannot delete the default admin account");
-      return;
-    }
-    const userToDelete = users.find(u => u.id === id);
-    if (confirm("Are you sure you want to delete this user?")) {
-      const updatedUsers = users.filter(u => u.id !== id);
-      setUsers(updatedUsers);
-      localStorage.setItem("users", JSON.stringify(updatedUsers));
-      toast.success("User deleted");
-      addAuditLog({
-        action: "Delete User",
-        user: user?.email || "System",
-        status: "Success",
-        details: `Deleted user account: ${userToDelete?.name || id}`,
-        category: "Auth"
-      });
-    }
+    // Placeholder: deletion not yet wired to backend user collection
+    toast.error("Deleting users is not yet supported for Mongo-backed accounts.");
   };
 
   // --- Template Actions ---

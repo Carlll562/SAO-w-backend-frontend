@@ -74,84 +74,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    // Get all users from localStorage
-    const usersData = localStorage.getItem("users");
-    const users = usersData ? JSON.parse(usersData) : [DEFAULT_ADMIN];
+    try {
+      const resp = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
 
-    // Find matching user
-    const foundUser = users.find(
-      (u: any) => u.email === email && u.password === password
-    );
+      const data = await resp.json().catch(() => ({}));
 
-    if (foundUser) {
-      const { password: _, ...userWithoutPassword } = foundUser;
-      
-      // Ensure permissions are attached
-      if (!userWithoutPassword.permissions) {
-        userWithoutPassword.permissions = userWithoutPassword.role === "Admin" ? ADMIN_PERMISSIONS : USER_PERMISSIONS;
-      }
-
-      // Attempt to obtain a backend JWT so the frontend can call
-      // the protected /api/v1/* endpoints (registrar role).
-      let backendToken: string | undefined;
-      try {
-        const resp = await fetch("/api/v1/auth/test-login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
+      if (!resp.ok || data.success === false) {
+        addAuditLog({
+          action: "Login Failed",
+          user: email,
+          status: "Failed",
+          details: data.message || `Failed login attempt — invalid credentials for "${email}"`,
+          category: "Error",
         });
-        if (resp.ok) {
-          const data = await resp.json();
-          backendToken = data.token;
-        } else {
-          console.error("Failed to obtain backend token:", await resp.text());
-        }
-      } catch (error) {
-        console.error("Error while requesting backend token:", error);
+        return false;
       }
+
+      const backendToken: string | undefined = data.token;
+      const apiUser = data.user;
+
+      const permissions: UserPermissions =
+        apiUser.permissions ||
+        (apiUser.role === "Admin" ? ADMIN_PERMISSIONS : USER_PERMISSIONS);
 
       const enhancedUser: User = {
-        ...(userWithoutPassword as User),
+        id: apiUser.id || 0,
+        name: apiUser.name,
+        email: apiUser.email,
+        role: apiUser.role,
+        permissions,
         backendToken,
       };
 
       setUser(enhancedUser);
       localStorage.setItem("currentUser", JSON.stringify(enhancedUser));
-      
-      // Log the login action
+
       addAuditLog({
         action: "Login",
-        user: foundUser.email,
+        user: enhancedUser.email,
         status: "Success",
-        details: "User logged in successfully",
+        details: "User logged in successfully (Mongo-backed auth)",
         category: "Auth",
       });
 
-      // Track session start
       const sessionStart = new Date().toISOString();
       localStorage.setItem("sessionStartTime", sessionStart);
-      localStorage.setItem("sessionStartUser", foundUser.email);
+      localStorage.setItem("sessionStartUser", enhancedUser.email);
       addAuditLog({
         action: "Session Start",
-        user: foundUser.email,
+        user: enhancedUser.email,
         status: "Success",
-        details: `New session opened for ${foundUser.name} (${foundUser.role})`,
+        details: `New session opened for ${enhancedUser.name} (${enhancedUser.role})`,
         category: "Session",
       });
-      
+
       return true;
+    } catch (error: any) {
+      console.error("Login error:", error);
+      addAuditLog({
+        action: "Login Error",
+        user: email,
+        status: "Error",
+        details: error?.message || "Unexpected error during login",
+        category: "Error",
+      });
+      return false;
     }
-
-    // Log failed login attempt
-    addAuditLog({
-      action: "Login Failed",
-      user: email,
-      status: "Failed",
-      details: `Failed login attempt — invalid credentials for "${email}"`,
-      category: "Error",
-    });
-
-    return false;
   };
 
   const logout = () => {

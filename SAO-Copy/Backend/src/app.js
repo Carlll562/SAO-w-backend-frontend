@@ -9,6 +9,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const gradeRoutes = require('./routes/gradeRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const logRoutes = require('./routes/logRoutes'); // <--- 1. ADD THIS IMPORT
+const authRoutes = require('./routes/authRoutes');
 
 const app = express();
 
@@ -27,22 +28,8 @@ app.get('/api/v1/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.post('/api/v1/auth/test-login', (req, res) => {
-    const { email } = req.body || {};
-
-    // Use the frontend user's email as the canonical username for logging.
-    // This allows audit logs to correctly attribute actions to any account,
-    // not just the default admin.
-    const username = email || 'admin@example.com';
-
-    const token = jwt.sign(
-        { id: 1, username, name: username, role: 'registrar' },
-        process.env.JWT_SECRET,
-        { expiresIn: '24h' }
-    );
-
-    res.json({ token });
-});
+// New auth routes backed by MongoDB users
+app.use('/api/v1/auth', authRoutes);
 
 // --- ROUTES ---
 app.use('/api/v1/students', studentRoutes);
