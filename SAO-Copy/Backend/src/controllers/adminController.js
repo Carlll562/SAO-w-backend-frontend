@@ -4,12 +4,12 @@ const AuditModel = require('../models/auditModel');
 // --- ADD COURSE ---
 const createCourse = async (req, res, next) => {
     const { name, code, units } = req.body;
-    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown Admin';
+    const performer = req.user?.email || req.user?.username || req.user?.name || 'Unknown Admin';
 
     try {
         if (!name || !code || !units) throw new Error("Missing Course Name, Code, or Units.");
         
-        await AdminModel.addCourse(name, code, units);
+        await AdminModel.addCourse(name, code, units, performer);
         await AuditModel.logAction('system', {
             performer,
             action: 'ADD_NEW_COURSE',
@@ -33,12 +33,12 @@ const createCourse = async (req, res, next) => {
 // --- ADD PROGRAM ---
 const createProgram = async (req, res, next) => {
     const { name } = req.body;
-    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown Admin';
+    const performer = req.user?.email || req.user?.username || req.user?.name || 'Unknown Admin';
 
     try {
         if (!name) throw new Error("Program name is required.");
         
-        await AdminModel.addProgram(name);
+        await AdminModel.addProgram(name, performer);
         await AuditModel.logAction('system', {
             performer,
             action: 'ADD_PROGRAM',
@@ -62,12 +62,12 @@ const createProgram = async (req, res, next) => {
 // --- ADD CURRICULUM ---
 const createCurriculumEntry = async (req, res, next) => {
     const { programName, year, semester, courseCode } = req.body;
-    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown Admin';
+    const performer = req.user?.email || req.user?.username || req.user?.name || 'Unknown Admin';
 
     try {
         if (!programName || !year || !semester || !courseCode) throw new Error("Missing Curriculum parameters.");
 
-        await AdminModel.addCurriculum(programName, year, semester, courseCode);
+        await AdminModel.addCurriculum(programName, year, semester, courseCode, performer);
         await AuditModel.logAction('system', {
             performer,
             action: 'ADD_CURRICULUM',

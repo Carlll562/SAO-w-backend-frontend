@@ -13,7 +13,7 @@ const validateStudentId = (id) => {
 
 const addStudent = async (req, res, next) => {
     const studentData = req.body;
-    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown User'; 
+    const performer = req.user?.email || req.user?.username || req.user?.name || 'Unknown User'; 
 
     try {
         const { idNumber, lastName, firstName, section } = studentData;
@@ -40,12 +40,15 @@ const addStudent = async (req, res, next) => {
             throw err;
         }
 
-        await StudentModel.add({
-            idNumber: trimmedId,
-            lastName: String(lastName).trim(),
-            firstName: String(firstName).trim(),
-            section: String(section).trim(),
-        });
+        await StudentModel.add(
+            {
+                idNumber: trimmedId,
+                lastName: String(lastName).trim(),
+                firstName: String(firstName).trim(),
+                section: String(section).trim(),
+            },
+            performer
+        );
 
         await AuditModel.logAction('system', {
             action: 'ADD_STUDENT',
@@ -76,7 +79,7 @@ const addStudent = async (req, res, next) => {
 };
 
 const updateStudent = async (req, res, next) => {
-    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown User';
+    const performer = req.user?.email || req.user?.username || req.user?.name || 'Unknown User';
     const { id } = req.params;
     const { firstName, lastName, section, currentYear, currentSemester } = req.body;
 
@@ -116,13 +119,17 @@ const updateStudent = async (req, res, next) => {
             throw err;
         }
 
-        await StudentModel.update(trimmedId, {
-            firstName: String(firstName).trim(),
-            lastName: String(lastName).trim(),
-            section: String(section).trim(),
-            currentYear: yearInt,
-            currentSemester: semInt,
-        });
+        await StudentModel.update(
+            trimmedId,
+            {
+                firstName: String(firstName).trim(),
+                lastName: String(lastName).trim(),
+                section: String(section).trim(),
+                currentYear: yearInt,
+                currentSemester: semInt,
+            },
+            performer
+        );
 
         await AuditModel.logAction('system', {
             action: 'UPDATE_STUDENT',
@@ -153,7 +160,7 @@ const updateStudent = async (req, res, next) => {
 };
 
 const setArchivedStatus = async (req, res, next) => {
-    const performer = req.user?.username || req.user?.name || req.user?.email || 'Unknown User';
+    const performer = req.user?.email || req.user?.username || req.user?.name || 'Unknown User';
     const { id } = req.params;
     const { archived } = req.body;
 
@@ -166,7 +173,7 @@ const setArchivedStatus = async (req, res, next) => {
             throw err;
         }
 
-        await StudentModel.setArchived(trimmedId, !!archived);
+        await StudentModel.setArchived(trimmedId, !!archived, performer);
 
         await AuditModel.logAction('system', {
             action: archived ? 'ARCHIVE_STUDENT' : 'RESTORE_STUDENT',
